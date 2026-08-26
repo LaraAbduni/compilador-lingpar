@@ -1,58 +1,146 @@
 import sys
+from typing import Literal
+
+#coiso que o robson ajudou e arrasou
+TokenType = Literal["INT", "MINUS", "PLUS", "EOF"]
 
 
-def calcular(entrada):
-    resultado = 0
-    numero = 0
-    operador = "+"
+class Token:
+    def __init__(self, token_type: TokenType, value: int | str):
+        self.type = token_type
+        self.value = value
 
-    tem_numero = False
-    teve_espaco = False
 
-    for c in entrada:
+# Transforma caracteres em tokens e ignora espaços em branco
+class Lexer:
+    def __init__(self, source: str):
+        self.source = source
+        self.position = 0
+        self.next = Token("EOF", "")
 
-        if c >= "0" and c <= "9":
-            if teve_espaco:
-                raise Exception()
+    def select_next(self):
+        # Ignora espaços em branco
+        while (
+            self.position < len(self.source)
+            and self.source[self.position].isspace()
+        ):
+            self.position += 1
 
-            numero = numero * 10 + int(c)
-            tem_numero = True
+        # Verifica se chegou ao final da expressão
+        if self.position >= len(self.source):
+            self.next = Token("EOF", "")
+            return
 
-        elif c == " ":
-            if tem_numero:
-                teve_espaco = True
+        current = self.source[self.position]
 
-        elif c == "+" or c == "-":
-            if not tem_numero:
-                raise Exception()
+        # Reconhece o operador +
+        if current == "+":
+            self.next = Token("PLUS", "+")
+            self.position += 1
+            return
 
-            if operador == "+":
-                resultado = resultado + numero
+        # Reconhece o operador -
+        if current == "-":
+            self.next = Token("MINUS", "-")
+            self.position += 1
+            return
+
+        # Reconhece um número inteiro
+        if current.isdigit():
+            number = ""
+
+            # Reconhece números com mais de um dígito
+            while (
+                self.position < len(self.source)
+                and self.source[self.position].isdigit()
+            ):
+                number += self.source[self.position]
+                self.position += 1
+
+            self.next = Token("INT", int(number))
+            return
+
+        # Qualquer outro símbolo é inválido
+        raise Exception(f"[Lexer] Invalid symbol {current}")
+
+
+class Parser:
+    lexer: Lexer
+
+    @staticmethod
+    def parse_expression() -> int:
+        # A expressão precisa começar com um número
+        if Parser.lexer.next.type != "INT":
+            raise Exception(
+                f"[Parser] Expected INT, got {Parser.lexer.next.type}"
+            )
+
+        # Guarda o primeiro número no resultado
+        result = int(Parser.lexer.next.value)
+
+        # Consome o primeiro número
+        Parser.lexer.select_next()
+
+        # Continua enquanto encontrar + ou -
+        while Parser.lexer.next.type in ("PLUS", "MINUS"):
+            # Guarda o operador antes de buscar o próximo token
+            operator = Parser.lexer.next.type
+
+            # Consome o operador
+            Parser.lexer.select_next()
+
+            # Depois do operador precisa existir um número
+            if Parser.lexer.next.type != "INT":
+                raise Exception(
+                    f"[Parser] Expected INT, got {Parser.lexer.next.type}"
+                )
+
+            number = int(Parser.lexer.next.value)
+
+            # Realiza a operação
+            if operator == "PLUS":
+                result += number
             else:
-                resultado = resultado - numero
+                result -= number
 
-            operador = c
-            numero = 0
-            tem_numero = False
-            teve_espaco = False
+            # Consome o número
+            Parser.lexer.select_next()
 
-        else:
-            raise Exception()
+        return result
 
-    if not tem_numero:
-        raise Exception()
+    @staticmethod
+    def run(code: str) -> int:
+        # Cria o Lexer usando a expressão recebida
+        Parser.lexer = Lexer(code)
 
-    if operador == "+":
-        resultado = resultado + numero
-    else:
-        resultado = resultado - numero
+        # Posiciona o Lexer no primeiro token
+        Parser.lexer.select_next()
 
-    return resultado
+        # Analisa e calcula a expressão
+        result = Parser.parse_expression()
+
+        # Verifica se toda a expressão foi consumida
+        if Parser.lexer.next.type != "EOF":
+            raise Exception(
+                f"[Parser] Unexpected token {Parser.lexer.next.type}"
+            )
+
+        return result
 
 
-if len(sys.argv) != 2:
-    raise Exception()
+def main():
+    # Precisa receber exatamente uma expressão pelo terminal
+    if len(sys.argv) != 2:
+        raise Exception(
+            "[Parser] Expected exactly one input expression"
+        )
 
-entrada = sys.argv[1]
+    entrada = sys.argv[1]
 
-print(calcular(entrada))
+    resultado = Parser.run(entrada)
+
+    print(resultado)
+
+
+if __name__ == "__main__":
+    main()
