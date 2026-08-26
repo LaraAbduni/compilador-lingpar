@@ -1,7 +1,7 @@
 import sys
 from typing import Literal
 
-#coiso que o robson ajudou e arrasou
+#coiso  que o robson ajudou e arrasou
 TokenType = Literal["INT", "MINUS", "PLUS", "EOF"]
 
 
@@ -65,7 +65,8 @@ class Lexer:
 
 
 class Parser:
-    lexer: Lexer
+    # Atributo estático que será inicializado pelo método run
+    lexer = None
 
     @staticmethod
     def parse_expression() -> int:
@@ -136,7 +137,6 @@ def main():
         )
 
     entrada = sys.argv[1]
-
     resultado = Parser.run(entrada)
 
     print(resultado)
