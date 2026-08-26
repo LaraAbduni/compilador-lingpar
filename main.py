@@ -2,7 +2,7 @@ import sys
 from typing import Literal
 
 #coiso  que o robson ajudou e arrasou
-TokenType = Literal["INT", "MINUS", "PLUS", "EOF"]
+TokenType = Literal["INT", "MINUS", "PLUS", "XOR", "EOF"]
 
 
 class Token:
@@ -11,7 +11,6 @@ class Token:
         self.value = value
 
 
-# Transforma caracteres em tokens e ignora espaços em branco
 class Lexer:
     def __init__(self, source: str):
         self.source = source
@@ -42,6 +41,12 @@ class Lexer:
         # Reconhece o operador -
         if current == "-":
             self.next = Token("MINUS", "-")
+            self.position += 1
+            return
+
+        # Reconhece o operador XOR
+        if current == "^":
+            self.next = Token("XOR", "^")
             self.position += 1
             return
 
@@ -83,7 +88,11 @@ class Parser:
         Parser.lexer.select_next()
 
         # Continua enquanto encontrar + ou -
-        while Parser.lexer.next.type in ("PLUS", "MINUS"):
+        while Parser.lexer.next.type in (
+            "PLUS",
+            "MINUS",
+            "XOR",
+        ):
             # Guarda o operador antes de buscar o próximo token
             operator = Parser.lexer.next.type
 
@@ -101,8 +110,10 @@ class Parser:
             # Realiza a operação
             if operator == "PLUS":
                 result += number
-            else:
+            elif operator == "MINUS":
                 result -= number
+            else:
+                result ^= number
 
             # Consome o número
             Parser.lexer.select_next()
