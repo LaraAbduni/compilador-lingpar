@@ -2,7 +2,7 @@ import sys
 from typing import Literal
 
 #coiso  que o robson ajudou e arrasou
-TokenType = Literal["INT", "MINUS", "PLUS", "XOR", "EOF"]
+TokenType = Literal["INT", "MINUS", "PLUS", "DIV", "MULT", "OPEN_PAR", "CLOSE_PAR", "EOF"]
 
 
 class Token:
@@ -25,7 +25,7 @@ class Lexer:
         ):
             self.position += 1
 
-        # Verifica se chegou ao final da expressão
+        # Verifica se chegou ao final
         if self.position >= len(self.source):
             self.next = Token("EOF", "")
             return
@@ -44,9 +44,27 @@ class Lexer:
             self.position += 1
             return
 
-        # Reconhece o operador XOR
-        if current == "^":
-            self.next = Token("XOR", "^")
+        # Reconhece o operador de divisão
+        if current == "/":
+            self.next = Token("DIV", "/")
+            self.position += 1
+            return
+
+        # Reconhece o operador de multiplicação
+        if current == "*":
+            self.next = Token("MULT", "*")
+            self.position += 1
+            return
+
+        # Abre parênteses
+        if current == "(":
+            self.next = Token("OPEN_PAR", "(")
+            self.position += 1
+            return
+
+        # Fecha parênteses
+        if current == ")":
+            self.next = Token("CLOSE_PAR", ")")
             self.position += 1
             return
 
@@ -74,49 +92,97 @@ class Parser:
     lexer = None
 
     @staticmethod
-    def parse_expression() -> int:
-        # A expressão precisa começar com um número
-        if Parser.lexer.next.type != "INT":
-            raise Exception(
-                f"[Parser] Expected INT, got {Parser.lexer.next.type}"
-            )
+    def parse_factor() -> int:
+        # Operadores unários + e -
+        if Parser.lexer.next.type in ("PLUS", "MINUS"):
+            operator = Parser.lexer.next.type
 
-        # Guarda o primeiro número no resultado
-        result = int(Parser.lexer.next.value)
+            # Consome o operador unário
+            Parser.lexer.select_next()
 
-        # Consome o primeiro número
-        Parser.lexer.select_next()
+            # Recursão permite entradas como +--++3
+            result = Parser.parse_factor()
 
-        # Continua enquanto encontrar + ou -
-        while Parser.lexer.next.type in (
-            "PLUS",
-            "MINUS",
-            "XOR",
-        ):
-            # Guarda o operador antes de buscar o próximo token
+            if operator == "MINUS":
+                result = -result
+
+            return result
+
+        # Expressão entre parênteses
+        if Parser.lexer.next.type == "OPEN_PAR":
+            # Consome (
+            Parser.lexer.select_next()
+
+            # Calcula a expressão interna
+            result = Parser.parse_expression()
+
+            # Exige o fechamento do parêntese
+            if Parser.lexer.next.type != "CLOSE_PAR":
+                raise Exception(
+                    "[Parser] Expected CLOSE_PAR, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome )
+            Parser.lexer.select_next()
+
+            return result
+
+        # Número inteiro
+        if Parser.lexer.next.type == "INT":
+            result = int(Parser.lexer.next.value)
+
+            # Consome o número
+            Parser.lexer.select_next()
+
+            return result
+
+        raise Exception(
+            f"[Parser] Expected factor, got {Parser.lexer.next.type}"
+        )
+
+    @staticmethod
+    def parse_term() -> int:
+        # O primeiro elemento de um termo é um fator
+        result = Parser.parse_factor()
+
+        # Multiplicação e divisão
+        while Parser.lexer.next.type in ("MULT", "DIV"):
             operator = Parser.lexer.next.type
 
             # Consome o operador
             Parser.lexer.select_next()
 
-            # Depois do operador precisa existir um número
-            if Parser.lexer.next.type != "INT":
-                raise Exception(
-                    f"[Parser] Expected INT, got {Parser.lexer.next.type}"
-                )
+            # Obtém o próximo fator
+            factor = Parser.parse_factor()
 
-            number = int(Parser.lexer.next.value)
-
-            # Realiza a operação
-            if operator == "PLUS":
-                result += number
-            elif operator == "MINUS":
-                result -= number
+            if operator == "MULT":
+                result *= factor
             else:
-                result ^= number
+                # Divisão inteira
+                result //= factor
 
-            # Consome o número
+        return result
+
+    @staticmethod
+    def parse_expression() -> int:
+        # O primeiro elemento de uma expressão é um termo
+        result = Parser.parse_term()
+
+        # Soma e subtração
+        while Parser.lexer.next.type in ("PLUS", "MINUS"):
+            operator = Parser.lexer.next.type
+
+            # Consome o operador
             Parser.lexer.select_next()
+
+            # Obtém o próximo termo
+            term = Parser.parse_term()
+
+            if operator == "PLUS":
+                result += term
+            else:
+                result -= term
 
         return result
 
