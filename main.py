@@ -2,7 +2,7 @@ import sys
 from typing import Literal
 
 #coiso  que o robson ajudou e arrasou
-TokenType = Literal["INT", "MINUS", "PLUS", "DIV", "MULT", "OPEN_PAR", "CLOSE_PAR", "EOF"]
+TokenType = Literal["INT", "MINUS", "PLUS", "DIV", "MULT", "POWER", "OPEN_PAR", "CLOSE_PAR", "EOF"]
 
 
 class Token:
@@ -50,10 +50,18 @@ class Lexer:
             self.position += 1
             return
 
-        # Reconhece o operador de multiplicação
+        #ajuste pro power
         if current == "*":
-            self.next = Token("MULT", "*")
-            self.position += 1
+            if (
+                self.position + 1 < len(self.source)
+                and self.source[self.position + 1] == "*"
+            ):
+                self.next = Token("POWER", "**")
+                self.position += 2
+            else:
+                self.next = Token("MULT", "*")
+                self.position += 1
+
             return
 
         # Abre parênteses
@@ -108,6 +116,12 @@ class Parser:
 
             return result
 
+        result = Parser.parse_power()
+
+        return result
+
+    @staticmethod
+    def parse_power() -> int:
         # Expressão entre parênteses
         if Parser.lexer.next.type == "OPEN_PAR":
             # Consome (
@@ -126,20 +140,25 @@ class Parser:
             # Consome )
             Parser.lexer.select_next()
 
-            return result
-
         # Número inteiro
-        if Parser.lexer.next.type == "INT":
+        elif Parser.lexer.next.type == "INT":
             result = int(Parser.lexer.next.value)
 
             # Consome o número
             Parser.lexer.select_next()
 
-            return result
+        else:
+            raise Exception(
+                f"[Parser] Expected factor, got {Parser.lexer.next.type}"
+            )
 
-        raise Exception(
-            f"[Parser] Expected factor, got {Parser.lexer.next.type}"
-        )
+        if Parser.lexer.next.type == "POWER":
+            Parser.lexer.select_next()
+
+            exponent = Parser.parse_factor()
+            result = result ** exponent
+
+        return result
 
     @staticmethod
     def parse_term() -> int:
