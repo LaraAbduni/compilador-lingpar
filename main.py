@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import List, Literal
 
 #coiso  que o robson ajudou e arrasou
-TokenType = Literal["INT", "MINUS", "PLUS", "DIV", "MULT", "OPEN_PAR", "CLOSE_PAR", "EOF"]
+TokenType = Literal["INT", "MINUS", "PLUS", "DIV", "MULT", "FACT", "OPEN_PAR", "CLOSE_PAR", "EOF"]
 
 
 class Node(ABC):
@@ -64,6 +64,19 @@ class UnOp(Node):
             return +child_value
         elif self.value == "-":
             return -child_value
+        elif self.value == "!":
+            if child_value < 0:
+                raise Exception(
+                    "[Semantic] Factorial is not defined "
+                    "for negative numbers"
+                )
+
+            result = 1
+
+            for number in range(2, child_value + 1):
+                result *= number
+
+            return result
         else:
             raise Exception(
                 f"[Semantic] Unknown unary operator: {self.value}"
@@ -130,6 +143,12 @@ class Lexer:
         # Reconhece o operador de multiplicação
         if current == "*":
             self.next = Token("MULT", "*")
+            self.position += 1
+            return
+
+        # Reconhece o operador fatorial
+        if current == "!":
+            self.next = Token("FACT", "!")
             self.position += 1
             return
 
@@ -202,10 +221,8 @@ class Parser:
             # Consome )
             Parser.lexer.select_next()
 
-            return result
-
         # Número inteiro
-        if Parser.lexer.next.type == "INT":
+        elif Parser.lexer.next.type == "INT":
             result = IntVal(
                 int(Parser.lexer.next.value),
                 [],
@@ -214,11 +231,20 @@ class Parser:
             # Consome o número
             Parser.lexer.select_next()
 
-            return result
+        else:
+            raise Exception(
+                f"[Parser] Unexpected token "
+                f"{Parser.lexer.next.type}"
+            )
 
-        raise Exception(
-            f"[Parser] Expected factor, got {Parser.lexer.next.type}"
-        )
+        # Aplica o fatorial depois do valor
+        while Parser.lexer.next.type == "FACT":
+            # Consome !
+            Parser.lexer.select_next()
+
+            result = UnOp("!", [result])
+
+        return result
 
     @staticmethod
     def parse_term() -> Node:
