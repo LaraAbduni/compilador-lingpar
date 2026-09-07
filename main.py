@@ -1,8 +1,69 @@
 import sys
-from typing import Literal
+from abc import ABC, abstractmethod
+from typing import List, Literal
 
 #coiso  que o robson ajudou e arrasou
 TokenType = Literal["INT", "MINUS", "PLUS", "DIV", "MULT", "OPEN_PAR", "CLOSE_PAR", "EOF"]
+
+
+class Node(ABC):
+    def __init__(self, value: str | int, children: List["Node"]):
+        self.value = value
+        self.children = children
+
+    @abstractmethod
+    def evaluate(self) -> int:
+        pass
+
+
+class BinOp(Node):
+    def __init__(self, value: str, left: Node, right: Node):
+        super().__init__(value, [left, right])
+
+    def evaluate(self) -> int:
+        left_value = self.children[0].evaluate()
+        right_value = self.children[1].evaluate()
+
+        if self.value == "+":
+            return left_value + right_value
+        elif self.value == "-":
+            return left_value - right_value
+        elif self.value == "*":
+            return left_value * right_value
+        elif self.value == "/":
+            if right_value == 0:
+                raise Exception("[Semantic] Division by zero")
+
+            return left_value // right_value
+        else:
+            raise Exception(
+                f"[Semantic] Unknown operator: {self.value}"
+            )
+
+
+class UnOp(Node):
+    def __init__(self, value: str, child: Node):
+        super().__init__(value, [child])
+
+    def evaluate(self) -> int:
+        child_value = self.children[0].evaluate()
+
+        if self.value == "+":
+            return +child_value
+        elif self.value == "-":
+            return -child_value
+        else:
+            raise Exception(
+                f"[Semantic] Unknown unary operator: {self.value}"
+            )
+
+
+class IntVal(Node):
+    def __init__(self, value: int):
+        super().__init__(value, [])
+
+    def evaluate(self) -> int:
+        return self.value
 
 
 class Token:
@@ -92,10 +153,10 @@ class Parser:
     lexer = None
 
     @staticmethod
-    def parse_factor() -> int:
+    def parse_factor() -> Node:
         # Operadores unários + e -
         if Parser.lexer.next.type in ("PLUS", "MINUS"):
-            operator = Parser.lexer.next.type
+            operator = str(Parser.lexer.next.value)
 
             # Consome o operador unário
             Parser.lexer.select_next()
@@ -103,8 +164,7 @@ class Parser:
             # Recursão permite entradas como +--++3
             result = Parser.parse_factor()
 
-            if operator == "MINUS":
-                result = -result
+            result = UnOp(operator, result)
 
             return result
 
@@ -130,7 +190,7 @@ class Parser:
 
         # Número inteiro
         if Parser.lexer.next.type == "INT":
-            result = int(Parser.lexer.next.value)
+            result = IntVal(int(Parser.lexer.next.value))
 
             # Consome o número
             Parser.lexer.select_next()
@@ -142,13 +202,13 @@ class Parser:
         )
 
     @staticmethod
-    def parse_term() -> int:
+    def parse_term() -> Node:
         # O primeiro elemento de um termo é um fator
         result = Parser.parse_factor()
 
         # Multiplicação e divisão
         while Parser.lexer.next.type in ("MULT", "DIV"):
-            operator = Parser.lexer.next.type
+            operator = str(Parser.lexer.next.value)
 
             # Consome o operador
             Parser.lexer.select_next()
@@ -156,22 +216,18 @@ class Parser:
             # Obtém o próximo fator
             factor = Parser.parse_factor()
 
-            if operator == "MULT":
-                result *= factor
-            else:
-                # Divisão inteira
-                result //= factor
+            result = BinOp(operator, result, factor)
 
         return result
 
     @staticmethod
-    def parse_expression() -> int:
+    def parse_expression() -> Node:
         # O primeiro elemento de uma expressão é um termo
         result = Parser.parse_term()
 
         # Soma e subtração
         while Parser.lexer.next.type in ("PLUS", "MINUS"):
-            operator = Parser.lexer.next.type
+            operator = str(Parser.lexer.next.value)
 
             # Consome o operador
             Parser.lexer.select_next()
@@ -179,15 +235,12 @@ class Parser:
             # Obtém o próximo termo
             term = Parser.parse_term()
 
-            if operator == "PLUS":
-                result += term
-            else:
-                result -= term
+            result = BinOp(operator, result, term)
 
         return result
 
     @staticmethod
-    def run(code: str) -> int:
+    def run(code: str) -> Node:
         # Cria o Lexer usando a expressão recebida
         Parser.lexer = Lexer(code)
 
@@ -214,7 +267,9 @@ def main():
         )
 
     entrada = sys.argv[1]
-    resultado = Parser.run(entrada)
+
+    raiz = Parser.run(entrada)
+    resultado = raiz.evaluate()
 
     print(resultado)
 
