@@ -7,7 +7,11 @@ TokenType = Literal["INT", "MINUS", "PLUS", "DIV", "MULT", "OPEN_PAR", "CLOSE_PA
 
 
 class Node(ABC):
-    def __init__(self, value: str | int, children: List["Node"]):
+    def __init__(
+        self,
+        value: str | int,
+        children: List["Node"],
+    ):
         self.value = value
         self.children = children
 
@@ -17,8 +21,12 @@ class Node(ABC):
 
 
 class BinOp(Node):
-    def __init__(self, value: str, left: Node, right: Node):
-        super().__init__(value, [left, right])
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
 
     def evaluate(self) -> int:
         left_value = self.children[0].evaluate()
@@ -42,8 +50,12 @@ class BinOp(Node):
 
 
 class UnOp(Node):
-    def __init__(self, value: str, child: Node):
-        super().__init__(value, [child])
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
 
     def evaluate(self) -> int:
         child_value = self.children[0].evaluate()
@@ -59,8 +71,12 @@ class UnOp(Node):
 
 
 class IntVal(Node):
-    def __init__(self, value: int):
-        super().__init__(value, [])
+    def __init__(
+        self,
+        value: int,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
 
     def evaluate(self) -> int:
         return self.value
@@ -164,7 +180,7 @@ class Parser:
             # Recursão permite entradas como +--++3
             result = Parser.parse_factor()
 
-            result = UnOp(operator, result)
+            result = UnOp(operator, [result])
 
             return result
 
@@ -190,7 +206,10 @@ class Parser:
 
         # Número inteiro
         if Parser.lexer.next.type == "INT":
-            result = IntVal(int(Parser.lexer.next.value))
+            result = IntVal(
+                int(Parser.lexer.next.value),
+                [],
+            )
 
             # Consome o número
             Parser.lexer.select_next()
@@ -216,7 +235,7 @@ class Parser:
             # Obtém o próximo fator
             factor = Parser.parse_factor()
 
-            result = BinOp(operator, result, factor)
+            result = BinOp(operator, [result, factor])
 
         return result
 
@@ -235,7 +254,7 @@ class Parser:
             # Obtém o próximo termo
             term = Parser.parse_term()
 
-            result = BinOp(operator, result, term)
+            result = BinOp(operator, [result, term])
 
         return result
 
@@ -247,7 +266,7 @@ class Parser:
         # Posiciona o Lexer no primeiro token
         Parser.lexer.select_next()
 
-        # Analisa e calcula a expressão
+        # Analisa e monta a AST da expressão
         result = Parser.parse_expression()
 
         # Verifica se toda a expressão foi consumida
