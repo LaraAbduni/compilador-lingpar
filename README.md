@@ -8,12 +8,12 @@
 
 ```ebnf
 PROGRAM = { STATEMENT } ;
-STATEMENT = ((IDENTIFIER, "=", EXPRESSION) | ("Println", "(", EXPRESSION, ")") | ε), "\n" ;
+STATEMENT = ("Println", "(", EXPRESSION, ")" | IDENTIFIER, "=", EXPRESSION | Ε), "\n" ;
 EXPRESSION = TERM, { ("+" | "-"), TERM } ;
 TERM = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR = ("+" | "-"), FACTOR | "(", EXPRESSION, ")" | NUMBER | IDENTIFIER ;
-NUMBER = DIGIT, {DIGIT} ;
-DIGIT = 0 | 1 | ... | 9 ;
-IDENTIFIER = LETTER, {LETTER | DIGIT | "_"} ;
-LETTER = a | b | ... | z | A | B | ... | Z ;
+FACTOR = NUMBER | IDENTIFIER | ("+" | "-"), FACTOR | "(", EXPRESSION, ")" ;
+NUMBER = DIGIT, { DIGIT } ;
+IDENTIFIER = LETTER, { LETTER | DIGIT | "_" } ;
+DIGIT = "0" | "1" | ... | "9" ;
+LETTER = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
 ```

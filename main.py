@@ -27,15 +27,7 @@ class Variable:
 
 class SymbolTable:
     def __init__(self):
-        self._table: Dict[str, Variable] = {}
-
-    @property
-    def table(self) -> Dict[str, Variable]:
-        return self._table
-
-    @table.setter
-    def table(self, new_table: Dict[str, Variable]):
-        self._table = new_table
+        self.table: Dict[str, Variable] = {}
 
     def set_value(self, name: str, value: int):
         self.table[name] = Variable(value)
