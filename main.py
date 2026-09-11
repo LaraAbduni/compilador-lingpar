@@ -397,7 +397,10 @@ class Parser:
             # Obtém o próximo fator
             factor = Parser.parse_factor()
 
-            result = BinOp(operator, [result, factor])
+            result = BinOp(
+                operator,
+                [result, factor],
+            )
 
         return result
 
@@ -416,7 +419,10 @@ class Parser:
             # Obtém o próximo termo
             term = Parser.parse_term()
 
-            result = BinOp(operator, [result, term])
+            result = BinOp(
+                operator,
+                [result, term],
+            )
 
         return result
 
@@ -519,7 +525,9 @@ class Parser:
 
         # Monta um bloco com todas as instruções do arquivo
         while Parser.lexer.next.type != "EOF":
-            statements.append(Parser.parse_statement())
+            statements.append(
+                Parser.parse_statement()
+            )
 
         return Block("", statements)
 
