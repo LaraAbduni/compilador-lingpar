@@ -17,12 +17,14 @@ TokenType = Literal[
     "END",
     "PRINT",
     "IDEN",
+    "CONST",
 ]
 
 
 class Variable:
     def __init__(self, value: int):
         self.value = value
+        self.read_only = False
 
 
 class SymbolTable:
@@ -30,6 +32,14 @@ class SymbolTable:
         self.table: Dict[str, Variable] = {}
 
     def set_value(self, name: str, value: int):
+        if (
+            name in self.table
+            and self.table[name].read_only
+        ):
+            raise Exception(
+                f"[Semantic] Variable {name} can not be changed"
+            )
+
         self.table[name] = Variable(value)
 
     def get_value(self, name: str) -> int:
@@ -151,9 +161,26 @@ class Assignment(Node):
 
     def evaluate(self, st: SymbolTable):
         variable_name = str(self.children[0].value)
+
+        # Impede a alteração de uma variável imutável
+        if (
+            variable_name in st.table
+            and st.table[variable_name].read_only
+        ):
+            raise Exception(
+                f"[Semantic] Variable "
+                f"{variable_name} can not be changed"
+            )
+
         variable_value = self.children[1].evaluate(st)
 
-        st.set_value(variable_name, variable_value)
+        # Declara uma variável imutável
+        if self.value == "const":
+            variable = Variable(variable_value)
+            variable.read_only = True
+            st.table[variable_name] = variable
+        else:
+            st.set_value(variable_name, variable_value)
 
 
 class Block(Node):
@@ -194,7 +221,53 @@ class Token:
 class PrePro:
     @staticmethod
     def filter(code: str) -> str:
-        return re.sub(r"//[^\n]*", "", code)
+        # Remove comentários
+        code = re.sub(r"//[^\n]*", "", code)
+
+        constants = {}
+        filtered_lines = []
+
+        # Encontra e remove as diretivas define
+        for line in code.splitlines(keepends=True):
+            stripped_line = line.strip()
+
+            if re.match(r"^define(?:\s|$)", stripped_line):
+                match = re.fullmatch(
+                    r"define\s+"
+                    r"([A-Za-z][A-Za-z0-9_]*)"
+                    r"\s*=\s*(-?\d+)\s*",
+                    stripped_line,
+                )
+
+                if match is None:
+                    raise Exception(
+                        "[PrePro] Invalid define directive"
+                    )
+
+                name = match.group(1)
+                value = match.group(2)
+
+                constants[name] = value
+
+                # Mantém o avanço de linha
+                if line.endswith("\n"):
+                    filtered_lines.append("\n")
+            else:
+                filtered_lines.append(line)
+
+        code = "".join(filtered_lines)
+
+        # Substitui as constantes no restante do programa
+        for name, value in constants.items():
+            code = re.sub(
+                rf"(?<![A-Za-z0-9_])"
+                rf"{re.escape(name)}"
+                rf"(?![A-Za-z0-9_])",
+                value,
+                code,
+            )
+
+        return code
 
 
 class Lexer:
@@ -295,8 +368,13 @@ class Lexer:
                 identifier += self.source[self.position]
                 self.position += 1
 
+            # Separa as palavras reservadas
             if identifier == "Println":
                 self.next = Token("PRINT", identifier)
+
+            elif identifier == "const":
+                self.next = Token("CONST", identifier)
+
             else:
                 self.next = Token("IDEN", identifier)
 
@@ -425,6 +503,54 @@ class Parser:
             Parser.lexer.select_next()
 
             return NoOp("", [])
+
+        # Declaração de variável imutável
+        if Parser.lexer.next.type == "CONST":
+            # Consome const
+            Parser.lexer.select_next()
+
+            # Exige o nome da variável
+            if Parser.lexer.next.type != "IDEN":
+                raise Exception(
+                    f"[Parser] Unexpected token "
+                    f"{Parser.lexer.next.type}"
+                )
+
+            identifier = Identifier(
+                str(Parser.lexer.next.value),
+                [],
+            )
+
+            # Consome o identificador
+            Parser.lexer.select_next()
+
+            # Exige o operador de atribuição
+            if Parser.lexer.next.type != "ASSIGN":
+                raise Exception(
+                    f"[Parser] Unexpected token "
+                    f"{Parser.lexer.next.type}"
+                )
+
+            # Consome =
+            Parser.lexer.select_next()
+
+            # Monta a AST da expressão atribuída
+            expression = Parser.parse_expression()
+
+            # Toda instrução precisa terminar com uma quebra de linha
+            if Parser.lexer.next.type != "END":
+                raise Exception(
+                    f"[Parser] Unexpected token "
+                    f"{Parser.lexer.next.type}"
+                )
+
+            # Consome a quebra de linha
+            Parser.lexer.select_next()
+
+            return Assignment(
+                "const",
+                [identifier, expression],
+            )
 
         # Atribuição de variável
         if Parser.lexer.next.type == "IDEN":
