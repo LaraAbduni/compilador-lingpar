@@ -3,6 +3,7 @@ import sys
 from abc import ABC, abstractmethod
 from typing import Dict, List, Literal
 
+
 #coiso  que o robson ajudou e arrasou
 TokenType = Literal[
     "INT",
@@ -17,6 +18,18 @@ TokenType = Literal[
     "END",
     "PRINT",
     "IDEN",
+    "AND",
+    "OR",
+    "NOT",
+    "EQ",
+    "GT",
+    "LT",
+    "IF",
+    "WHILE",
+    "ELSE",
+    "READ",
+    "OPEN_BRA",
+    "CLOSE_BRA",
 ]
 
 
@@ -78,6 +91,16 @@ class BinOp(Node):
                 raise Exception("[Semantic] Division by zero")
 
             return left_value // right_value
+        elif self.value == "==":
+            return int(left_value == right_value)
+        elif self.value == ">":
+            return int(left_value > right_value)
+        elif self.value == "<":
+            return int(left_value < right_value)
+        elif self.value == "&&":
+            return int(bool(left_value) and bool(right_value))
+        elif self.value == "||":
+            return int(bool(left_value) or bool(right_value))
         else:
             raise Exception(
                 f"[Semantic] Unknown operator: {self.value}"
@@ -99,6 +122,8 @@ class UnOp(Node):
             return +child_value
         elif self.value == "-":
             return -child_value
+        elif self.value == "!":
+            return int(not bool(child_value))
         else:
             raise Exception(
                 f"[Semantic] Unknown unary operator: {self.value}"
@@ -181,6 +206,48 @@ class NoOp(Node):
         pass
 
 
+class If(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable):
+        condition = self.children[0].evaluate(st)
+
+        if condition:
+            self.children[1].evaluate(st)
+        elif len(self.children) == 3:
+            self.children[2].evaluate(st)
+
+
+class While(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable):
+        while self.children[0].evaluate(st):
+            self.children[1].evaluate(st)
+
+
+class Read(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable) -> int:
+        return int(input())
+
+
 class Token:
     def __init__(
         self,
@@ -248,9 +315,59 @@ class Lexer:
             self.position += 1
             return
 
-        # Reconhece o operador de atribuição
+        # Reconhece == antes de reconhecer =
         if current == "=":
-            self.next = Token("ASSIGN", "=")
+            if (
+                self.position + 1 < len(self.source)
+                and self.source[self.position + 1] == "="
+            ):
+                self.next = Token("EQ", "==")
+                self.position += 2
+            else:
+                self.next = Token("ASSIGN", "=")
+                self.position += 1
+
+            return
+
+        # Reconhece o operador lógico &&
+        if current == "&":
+            if (
+                self.position + 1 < len(self.source)
+                and self.source[self.position + 1] == "&"
+            ):
+                self.next = Token("AND", "&&")
+                self.position += 2
+                return
+
+            raise Exception("[Lexer] Invalid symbol &")
+
+        # Reconhece o operador lógico ||
+        if current == "|":
+            if (
+                self.position + 1 < len(self.source)
+                and self.source[self.position + 1] == "|"
+            ):
+                self.next = Token("OR", "||")
+                self.position += 2
+                return
+
+            raise Exception("[Lexer] Invalid symbol |")
+
+        # Reconhece o operador lógico !
+        if current == "!":
+            self.next = Token("NOT", "!")
+            self.position += 1
+            return
+
+        # Reconhece o operador relacional >
+        if current == ">":
+            self.next = Token("GT", ">")
+            self.position += 1
+            return
+
+        # Reconhece o operador relacional <
+        if current == "<":
+            self.next = Token("LT", "<")
             self.position += 1
             return
 
@@ -263,6 +380,18 @@ class Lexer:
         # Fecha parênteses
         if current == ")":
             self.next = Token("CLOSE_PAR", ")")
+            self.position += 1
+            return
+
+        # Abre chaves
+        if current == "{":
+            self.next = Token("OPEN_BRA", "{")
+            self.position += 1
+            return
+
+        # Fecha chaves
+        if current == "}":
+            self.next = Token("CLOSE_BRA", "}")
             self.position += 1
             return
 
@@ -295,8 +424,19 @@ class Lexer:
                 identifier += self.source[self.position]
                 self.position += 1
 
-            if identifier == "Println":
-                self.next = Token("PRINT", identifier)
+            reserved_words = {
+                "Println": "PRINT",
+                "if": "IF",
+                "for": "WHILE",
+                "else": "ELSE",
+                "Scanln": "READ",
+            }
+
+            if identifier in reserved_words:
+                self.next = Token(
+                    reserved_words[identifier],
+                    identifier,
+                )
             else:
                 self.next = Token("IDEN", identifier)
 
@@ -312,14 +452,18 @@ class Parser:
 
     @staticmethod
     def parse_factor() -> Node:
-        # Operadores unários + e -
-        if Parser.lexer.next.type in ("PLUS", "MINUS"):
+        # Operadores unários +, - e !
+        if Parser.lexer.next.type in (
+            "PLUS",
+            "MINUS",
+            "NOT",
+        ):
             operator = str(Parser.lexer.next.value)
 
             # Consome o operador unário
             Parser.lexer.select_next()
 
-            # Recursão permite entradas como +--++3
+            # Recursão permite entradas como +--++3 e !!1
             result = Parser.parse_factor()
 
             result = UnOp(operator, [result])
@@ -331,8 +475,8 @@ class Parser:
             # Consome (
             Parser.lexer.select_next()
 
-            # Monta a AST da expressão interna
-            result = Parser.parse_expression()
+            # Monta a AST da expressão booleana interna
+            result = Parser.parse_bool_expression()
 
             # Exige o fechamento do parêntese
             if Parser.lexer.next.type != "CLOSE_PAR":
@@ -345,6 +489,33 @@ class Parser:
             Parser.lexer.select_next()
 
             return result
+
+        # Leitura de um inteiro pelo terminal
+        if Parser.lexer.next.type == "READ":
+            # Consome Scanln
+            Parser.lexer.select_next()
+
+            # Exige (
+            if Parser.lexer.next.type != "OPEN_PAR":
+                raise Exception(
+                    "[Parser] Expected OPEN_PAR, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome (
+            Parser.lexer.select_next()
+
+            # Exige )
+            if Parser.lexer.next.type != "CLOSE_PAR":
+                raise Exception(
+                    "[Parser] Expected CLOSE_PAR, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome )
+            Parser.lexer.select_next()
+
+            return Read("Scanln", [])
 
         # Número inteiro
         if Parser.lexer.next.type == "INT":
@@ -419,6 +590,110 @@ class Parser:
         return result
 
     @staticmethod
+    def parse_rel_expression() -> Node:
+        # O primeiro elemento relacional é uma expressão aritmética
+        result = Parser.parse_expression()
+
+        # Igualdade, maior que e menor que
+        while Parser.lexer.next.type in ("EQ", "GT", "LT"):
+            operator = str(Parser.lexer.next.value)
+
+            # Consome o operador relacional
+            Parser.lexer.select_next()
+
+            # Obtém a próxima expressão aritmética
+            expression = Parser.parse_expression()
+
+            result = BinOp(
+                operator,
+                [result, expression],
+            )
+
+        return result
+
+    @staticmethod
+    def parse_bool_term() -> Node:
+        # O primeiro elemento de um termo booleano é uma expressão relacional
+        result = Parser.parse_rel_expression()
+
+        # Operação lógica AND
+        while Parser.lexer.next.type == "AND":
+            operator = str(Parser.lexer.next.value)
+
+            # Consome &&
+            Parser.lexer.select_next()
+
+            # Obtém a próxima expressão relacional
+            relation = Parser.parse_rel_expression()
+
+            result = BinOp(
+                operator,
+                [result, relation],
+            )
+
+        return result
+
+    @staticmethod
+    def parse_bool_expression() -> Node:
+        # O primeiro elemento de uma expressão booleana é um termo booleano
+        result = Parser.parse_bool_term()
+
+        # Operação lógica OR
+        while Parser.lexer.next.type == "OR":
+            operator = str(Parser.lexer.next.value)
+
+            # Consome ||
+            Parser.lexer.select_next()
+
+            # Obtém o próximo termo booleano
+            term = Parser.parse_bool_term()
+
+            result = BinOp(
+                operator,
+                [result, term],
+            )
+
+        return result
+
+    @staticmethod
+    def parse_block() -> Node:
+        # Exige a abertura do bloco
+        if Parser.lexer.next.type != "OPEN_BRA":
+            raise Exception(
+                "[Parser] Expected OPEN_BRA, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        # Consome {
+        Parser.lexer.select_next()
+
+        # A abertura do bloco precisa terminar com uma quebra de linha
+        if Parser.lexer.next.type != "END":
+            raise Exception(
+                "[Parser] Expected END, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        # Consome a quebra de linha
+        Parser.lexer.select_next()
+
+        statements: List[Node] = []
+
+        # Monta o bloco até encontrar }
+        while Parser.lexer.next.type != "CLOSE_BRA":
+            if Parser.lexer.next.type == "EOF":
+                raise Exception(
+                    "[Parser] Expected CLOSE_BRA, got EOF"
+                )
+
+            statements.append(Parser.parse_statement())
+
+        # Consome }
+        Parser.lexer.select_next()
+
+        return Block("", statements)
+
+    @staticmethod
     def parse_statement() -> Node:
         # Linha vazia
         if Parser.lexer.next.type == "END":
@@ -447,7 +722,7 @@ class Parser:
             Parser.lexer.select_next()
 
             # Monta a AST da expressão atribuída
-            expression = Parser.parse_expression()
+            expression = Parser.parse_bool_expression()
 
             # Toda instrução precisa terminar com uma quebra de linha
             if Parser.lexer.next.type != "END":
@@ -480,7 +755,7 @@ class Parser:
             Parser.lexer.select_next()
 
             # Monta a AST da expressão que será impressa
-            expression = Parser.parse_expression()
+            expression = Parser.parse_bool_expression()
 
             # Exige )
             if Parser.lexer.next.type != "CLOSE_PAR":
@@ -506,6 +781,66 @@ class Parser:
                 "Println",
                 [expression],
             )
+
+        # Laço for, que utiliza o token WHILE
+        if Parser.lexer.next.type == "WHILE":
+            # Consome for
+            Parser.lexer.select_next()
+
+            # Monta a condição do laço
+            condition = Parser.parse_bool_expression()
+
+            # Monta o bloco executado pelo laço
+            block = Parser.parse_block()
+
+            # Toda instrução precisa terminar com uma quebra de linha
+            if Parser.lexer.next.type != "END":
+                raise Exception(
+                    f"[Parser] Unexpected token "
+                    f"{Parser.lexer.next.type}"
+                )
+
+            # Consome a quebra de linha
+            Parser.lexer.select_next()
+
+            return While(
+                "for",
+                [condition, block],
+            )
+
+        # Condicional if
+        if Parser.lexer.next.type == "IF":
+            # Consome if
+            Parser.lexer.select_next()
+
+            # Monta a condição do if
+            condition = Parser.parse_bool_expression()
+
+            # Monta o bloco executado quando a condição é verdadeira
+            true_block = Parser.parse_block()
+
+            children = [condition, true_block]
+
+            # O else é opcional
+            if Parser.lexer.next.type == "ELSE":
+                # Consome else
+                Parser.lexer.select_next()
+
+                # Monta o bloco executado quando a condição é falsa
+                false_block = Parser.parse_block()
+                children.append(false_block)
+
+            # Toda instrução precisa terminar com uma quebra de linha
+            if Parser.lexer.next.type != "END":
+                raise Exception(
+                    f"[Parser] Unexpected token "
+                    f"{Parser.lexer.next.type}"
+                )
+
+            # Consome a quebra de linha
+            Parser.lexer.select_next()
+
+            return If("if", children)
 
         raise Exception(
             f"[Parser] Unexpected token {Parser.lexer.next.type}"

@@ -2,18 +2,22 @@
 
 ![Compilation Status](https://compiler-tester.insper-comp.com.br/svg/Lara70987/compilador-lingpar)
 
-![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v2.0)
+![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v2.1)
 
 ## EBNF
 
 ```ebnf
 PROGRAM = { STATEMENT } ;
-STATEMENT = ("Println", "(", EXPRESSION, ")" | IDENTIFIER, "=", EXPRESSION | Ε), "\n" ;
+BLOCK = "{", "\n", { STATEMENT }, "}" ;
+STATEMENT = (("if", BOOLEXPRESSION, BLOCK, (("else", BLOCK) | ε)) | ("for", BOOLEXPRESSION, BLOCK) | (IDENTIFIER, "=", BOOLEXPRESSION) | ("Println", "(", BOOLEXPRESSION, ")") | BLOCK | ε), "\n" ;
+BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
+BOOLTERM = RELEXPRESSION, { "&&", RELEXPRESSION } ;
+RELEXPRESSION = EXPRESSION, { ("==" | "<" | ">"), EXPRESSION } ;
 EXPRESSION = TERM, { ("+" | "-"), TERM } ;
 TERM = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR = NUMBER | IDENTIFIER | ("+" | "-"), FACTOR | "(", EXPRESSION, ")" ;
-NUMBER = DIGIT, { DIGIT } ;
-IDENTIFIER = LETTER, { LETTER | DIGIT | "_" } ;
-DIGIT = "0" | "1" | ... | "9" ;
-LETTER = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
+FACTOR = ("+" | "-" | "!"), FACTOR | "(", BOOLEXPRESSION, ")" | NUMBER | IDENTIFIER | "Scanln", "(", ")" ;
+NUMBER = DIGIT, {DIGIT} ;
+DIGIT = 0 | 1 | ... | 9 ;
+IDENTIFIER = LETTER, {LETTER | DIGIT | "_"} ;
+LETTER = a | b | ... | z | A | B | ... | Z ;
 ```
