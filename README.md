@@ -9,15 +9,15 @@
 ```ebnf
 PROGRAM = { STATEMENT } ;
 BLOCK = "{", "\n", { STATEMENT }, "}" ;
-STATEMENT = (("if", BOOLEXPRESSION, BLOCK, (("else", BLOCK) | ε)) | ("for", BOOLEXPRESSION, BLOCK) | (IDENTIFIER, "=", BOOLEXPRESSION) | ("Println", "(", BOOLEXPRESSION, ")") | BLOCK | ε), "\n" ;
+STATEMENT = (("Println", "(", BOOLEXPRESSION, ")") | ("for", BOOLEXPRESSION, BLOCK) | ("if", BOOLEXPRESSION, BLOCK, (("\n", "else", BLOCK) | Ε)) | (IDENTIFIER, "=", BOOLEXPRESSION) | BLOCK | Ε), "\n" ;
 BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
 BOOLTERM = RELEXPRESSION, { "&&", RELEXPRESSION } ;
 RELEXPRESSION = EXPRESSION, { ("==" | "<" | ">"), EXPRESSION } ;
 EXPRESSION = TERM, { ("+" | "-"), TERM } ;
 TERM = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR = ("+" | "-" | "!"), FACTOR | "(", BOOLEXPRESSION, ")" | NUMBER | IDENTIFIER | "Scanln", "(", ")" ;
-NUMBER = DIGIT, {DIGIT} ;
-DIGIT = 0 | 1 | ... | 9 ;
-IDENTIFIER = LETTER, {LETTER | DIGIT | "_"} ;
-LETTER = a | b | ... | z | A | B | ... | Z ;
+FACTOR = NUMBER | IDENTIFIER | ("+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
+NUMBER = DIGIT, { DIGIT } ;
+DIGIT = "0" | "1" | ... | "9" ;
+IDENTIFIER = LETTER, { LETTER | DIGIT | "_" } ;
+LETTER = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
 ```
