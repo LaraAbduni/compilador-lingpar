@@ -667,15 +667,9 @@ class Parser:
         # Consome {
         Parser.lexer.select_next()
 
-        # A abertura do bloco precisa terminar com uma quebra de linha
-        if Parser.lexer.next.type != "END":
-            raise Exception(
-                "[Parser] Expected END, "
-                f"got {Parser.lexer.next.type}"
-            )
-
-        # Consome a quebra de linha
-        Parser.lexer.select_next()
+        # A quebra de linha após { é opcional para permitir blocos em uma linha
+        if Parser.lexer.next.type == "END":
+            Parser.lexer.select_next()
 
         statements: List[Node] = []
 
@@ -700,6 +694,16 @@ class Parser:
             Parser.lexer.select_next()
 
             return NoOp("", [])
+
+        # Bloco aninhado tratado como uma instrução
+        if Parser.lexer.next.type == "OPEN_BRA":
+            block = Parser.parse_block()
+
+            # A quebra de linha após } é opcional para permitir { { } }
+            if Parser.lexer.next.type == "END":
+                Parser.lexer.select_next()
+
+            return block
 
         # Atribuição de variável
         if Parser.lexer.next.type == "IDEN":
