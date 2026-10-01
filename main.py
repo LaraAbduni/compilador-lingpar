@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Literal
 
 
-#coiso  que o robson ajudou e arrasou
 TokenType = Literal[
     "INT",
     "MINUS",
