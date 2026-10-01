@@ -16,6 +16,7 @@ TokenType = Literal[
     "EOF",
     "ASSIGN",
     "END",
+    "SEMICOLON",
     "PRINT",
     "IDEN",
     "AND",
@@ -218,9 +219,9 @@ class If(Node):
         condition = self.children[0].evaluate(st)
 
         if condition:
-            self.children[1].evaluate(st)
+            return self.children[1].evaluate(st)
         elif len(self.children) == 3:
-            self.children[2].evaluate(st)
+            return self.children[2].evaluate(st)
 
 
 class While(Node):
@@ -392,6 +393,12 @@ class Lexer:
         # Fecha chaves
         if current == "}":
             self.next = Token("CLOSE_BRA", "}")
+            self.position += 1
+            return
+
+        # Reconhece o separador ;
+        if current == ";":
+            self.next = Token("SEMICOLON", ";")
             self.position += 1
             return
 
@@ -635,6 +642,75 @@ class Parser:
 
     @staticmethod
     def parse_bool_expression() -> Node:
+        # Expressão condicional if cond { expr } else { expr }
+        if Parser.lexer.next.type == "IF":
+            # Consome if
+            Parser.lexer.select_next()
+
+            # Monta a condição
+            condition = Parser.parse_bool_expression()
+
+            # Exige {
+            if Parser.lexer.next.type != "OPEN_BRA":
+                raise Exception(
+                    "[Parser] Expected OPEN_BRA, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome {
+            Parser.lexer.select_next()
+
+            # Monta a expressão verdadeira
+            true_expression = Parser.parse_bool_expression()
+
+            # Exige }
+            if Parser.lexer.next.type != "CLOSE_BRA":
+                raise Exception(
+                    "[Parser] Expected CLOSE_BRA, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome }
+            Parser.lexer.select_next()
+
+            # Exige else
+            if Parser.lexer.next.type != "ELSE":
+                raise Exception(
+                    "[Parser] Expected ELSE, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome else
+            Parser.lexer.select_next()
+
+            # Exige {
+            if Parser.lexer.next.type != "OPEN_BRA":
+                raise Exception(
+                    "[Parser] Expected OPEN_BRA, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome {
+            Parser.lexer.select_next()
+
+            # Monta a expressão falsa
+            false_expression = Parser.parse_bool_expression()
+
+            # Exige }
+            if Parser.lexer.next.type != "CLOSE_BRA":
+                raise Exception(
+                    "[Parser] Expected CLOSE_BRA, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            # Consome }
+            Parser.lexer.select_next()
+
+            return If(
+                "if",
+                [condition, true_expression, false_expression],
+            )
+
         # O primeiro elemento de uma expressão booleana é um termo booleano
         result = Parser.parse_bool_term()
 
@@ -790,6 +866,158 @@ class Parser:
         if Parser.lexer.next.type == "WHILE":
             # Consome for
             Parser.lexer.select_next()
+
+            # Forma completa: for (i = 0; i < n; i = i + 1) { ... }
+            if Parser.lexer.next.type == "OPEN_PAR":
+                # Consome (
+                Parser.lexer.select_next()
+
+                # Exige o identificador da inicialização
+                if Parser.lexer.next.type != "IDEN":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                init_identifier = Identifier(
+                    str(Parser.lexer.next.value),
+                    [],
+                )
+
+                # Consome o identificador
+                Parser.lexer.select_next()
+
+                # Exige =
+                if Parser.lexer.next.type != "ASSIGN":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                # Consome =
+                Parser.lexer.select_next()
+
+                # Monta a atribuição inicial
+                init_expression = Parser.parse_bool_expression()
+                init_assignment = Assignment(
+                    "=",
+                    [init_identifier, init_expression],
+                )
+
+                # Exige ;
+                if Parser.lexer.next.type != "SEMICOLON":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                # Consome ;
+                Parser.lexer.select_next()
+
+                # Monta a condição do laço
+                condition = Parser.parse_bool_expression()
+
+                # Exige ;
+                if Parser.lexer.next.type != "SEMICOLON":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                # Consome ;
+                Parser.lexer.select_next()
+
+                # Exige o identificador da atualização
+                if Parser.lexer.next.type != "IDEN":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                update_identifier = Identifier(
+                    str(Parser.lexer.next.value),
+                    [],
+                )
+
+                # Consome o identificador
+                Parser.lexer.select_next()
+
+                # Exige =
+                if Parser.lexer.next.type != "ASSIGN":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                # Consome =
+                Parser.lexer.select_next()
+
+                # Monta a atribuição de atualização
+                update_expression = Parser.parse_bool_expression()
+                update_assignment = Assignment(
+                    "=",
+                    [update_identifier, update_expression],
+                )
+
+                # Exige )
+                if Parser.lexer.next.type != "CLOSE_PAR":
+                    raise Exception(
+                        "[Parser] Expected CLOSE_PAR, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                # Consome )
+                Parser.lexer.select_next()
+
+                # Blocos de for precisam começar na linha seguinte
+                if Parser.lexer.next.type != "OPEN_BRA":
+                    raise Exception(
+                        "[Parser] Expected OPEN_BRA, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                saved_position = Parser.lexer.position
+                saved_next = Parser.lexer.next
+                Parser.lexer.select_next()
+
+                if Parser.lexer.next.type != "END":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.position = saved_position
+                Parser.lexer.next = saved_next
+
+                # Monta o bloco executado pelo laço
+                block = Parser.parse_block()
+
+                # Toda instrução precisa terminar com uma quebra de linha
+                if Parser.lexer.next.type != "END":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                # Consome a quebra de linha
+                Parser.lexer.select_next()
+
+                return Block(
+                    "",
+                    [
+                        init_assignment,
+                        While(
+                            "for",
+                            [
+                                condition,
+                                Block(
+                                    "",
+                                    [block, update_assignment],
+                                ),
+                            ],
+                        ),
+                    ],
+                )
 
             # Monta a condição do laço
             condition = Parser.parse_bool_expression()
