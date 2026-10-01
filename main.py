@@ -656,7 +656,7 @@ class Parser:
         return result
 
     @staticmethod
-    def parse_block() -> Node:
+    def parse_block(require_initial_end: bool = False) -> Node:
         # Exige a abertura do bloco
         if Parser.lexer.next.type != "OPEN_BRA":
             raise Exception(
@@ -667,7 +667,13 @@ class Parser:
         # Consome {
         Parser.lexer.select_next()
 
-        # A quebra de linha após { é opcional para permitir blocos em uma linha
+        if require_initial_end and Parser.lexer.next.type != "END":
+            raise Exception(
+                f"[Parser] Unexpected token "
+                f"{Parser.lexer.next.type}"
+            )
+
+        # A quebra de linha após { é opcional em blocos isolados
         if Parser.lexer.next.type == "END":
             Parser.lexer.select_next()
 
@@ -795,7 +801,7 @@ class Parser:
             condition = Parser.parse_bool_expression()
 
             # Monta o bloco executado pelo laço
-            block = Parser.parse_block()
+            block = Parser.parse_block(require_initial_end=True)
 
             # Toda instrução precisa terminar com uma quebra de linha
             if Parser.lexer.next.type != "END":
@@ -821,7 +827,7 @@ class Parser:
             condition = Parser.parse_bool_expression()
 
             # Monta o bloco executado quando a condição é verdadeira
-            true_block = Parser.parse_block()
+            true_block = Parser.parse_block(require_initial_end=True)
 
             children = [condition, true_block]
 
@@ -831,7 +837,7 @@ class Parser:
                 Parser.lexer.select_next()
 
                 # Monta o bloco executado quando a condição é falsa
-                false_block = Parser.parse_block()
+                false_block = Parser.parse_block(require_initial_end=True)
                 children.append(false_block)
 
             # Toda instrução precisa terminar com uma quebra de linha
