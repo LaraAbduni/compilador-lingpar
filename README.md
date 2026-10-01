@@ -9,7 +9,7 @@
 ```ebnf
 PROGRAM = { STATEMENT } ;
 BLOCK = "{", "\n", { STATEMENT }, "}" ;
-STATEMENT = (("Println", "(", BOOLEXPRESSION, ")") | ("for", BOOLEXPRESSION, BLOCK) | ("if", BOOLEXPRESSION, BLOCK, (("\n", "else", BLOCK) | Ε)) | (IDENTIFIER, "=", BOOLEXPRESSION) | BLOCK | Ε), "\n" ;
+STATEMENT = (("Println", "(", BOOLEXPRESSION, ")") | ("for", BOOLEXPRESSION, BLOCK) | ("if", BOOLEXPRESSION, BLOCK, ("\n", "else", BLOCK) | Ε) | (IDENTIFIER, "=", BOOLEXPRESSION) | BLOCK | Ε), "\n" ;
 BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
 BOOLTERM = RELEXPRESSION, { "&&", RELEXPRESSION } ;
 RELEXPRESSION = EXPRESSION, { ("==" | "<" | ">"), EXPRESSION } ;
