@@ -769,7 +769,7 @@ class Parser:
 
     @staticmethod
     def parse_factor() -> Node:
-        # Casting: int(expr), float(expr), string(expr) ou bool(expr)
+        # Cast alternativo: int(expr), float(expr), string(expr) ou bool(expr)
         if Parser.lexer.next.type == "TYPE":
             cast_type = str(Parser.lexer.next.value)
             Parser.lexer.select_next()
@@ -811,10 +811,24 @@ class Parser:
 
             return result
 
-        # Expressão entre parênteses
+        # Cast no formato (tipo) fator
         if Parser.lexer.next.type == "OPEN_PAR":
             # Consome (
             Parser.lexer.select_next()
+
+            if Parser.lexer.next.type == "TYPE":
+                cast_type = str(Parser.lexer.next.value)
+                Parser.lexer.select_next()
+
+                if Parser.lexer.next.type != "CLOSE_PAR":
+                    raise Exception(
+                        "[Parser] Expected CLOSE_PAR, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.select_next()
+
+                return UnOp(cast_type, [Parser.parse_factor()])
 
             # Monta a AST da expressão booleana interna
             result = Parser.parse_bool_expression()
