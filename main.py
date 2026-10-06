@@ -173,7 +173,10 @@ class BinOp(Node):
             return Variable(left.value == right.value, "bool")
 
         if self.value in (">", "<"):
-            if left.type != "int" or right.type != "int":
+            if left.type != right.type or left.type not in (
+                "int",
+                "string",
+            ):
                 raise Exception("[Semantic] Incompatible types")
 
             if self.value == ">":

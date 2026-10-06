@@ -23,6 +23,11 @@ Println(ativo)
 Println("nome=" + nome + ", soma=" + soma)
 Println("ativo=" + ativo + ", desligado=" + desligado)
 
+var palavra_a string = "abc"
+var palavra_b string = "def"
+Println(palavra_a < palavra_b)
+Println(palavra_a > palavra_b)
+
 // Atribuições em variáveis previamente declaradas
 contador = contador + 1
 texto = "contador=" + contador
@@ -50,7 +55,6 @@ if (acumulado > 0 && !(n < 0)) || n == 0 {
 // contador = "texto"
 // var x int
 // Println(1 - "texto")
-// Println("a" < "b")
 // Println(true && 1)
 // if "texto" {
 //     Println("não deveria executar")
