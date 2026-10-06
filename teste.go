@@ -63,3 +63,12 @@ if (acumulado > 0 && !(n < 0)) || n == 0 {
 //     Println("não deveria executar")
 // }
 // variavel_nao_declarada = 10
+
+// Extra credit: casts e float.
+// var yf float = 1.6
+// var xi int = int(yf)
+// yf = xi + yf
+// Println(xi)
+// Println(yf)
+// Println(float(1) + 2.5)
+// var erro_int int = 1.2

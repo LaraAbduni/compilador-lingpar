@@ -5,6 +5,7 @@ from typing import Dict, List, Literal
 
 TokenType = Literal[
     "INT",
+    "FLOAT",
     "MINUS",
     "PLUS",
     "DIV",
@@ -36,7 +37,11 @@ TokenType = Literal[
 
 
 class Variable:
-    def __init__(self, value: int | bool | str, variable_type: str):
+    def __init__(
+        self,
+        value: int | float | bool | str,
+        variable_type: str,
+    ):
         self.value = value
         self.type = variable_type
 
@@ -58,6 +63,7 @@ class SymbolTable:
 
         default_values = {
             "int": 0,
+            "float": 0.0,
             "bool": False,
             "string": "",
         }
@@ -74,6 +80,13 @@ class SymbolTable:
             )
             return
 
+        if variable_type == "float" and value.type == "int":
+            self.table[name] = Variable(
+                float(value.value),
+                "float",
+            )
+            return
+
         if value.type != variable_type:
             raise Exception(
                 f"[Semantic] Incompatible types: "
@@ -87,6 +100,10 @@ class SymbolTable:
             raise Exception(
                 f"[Semantic] Undefined variable: {name}"
             )
+
+        if self.table[name].type == "float" and value.type == "int":
+            self.table[name] = Variable(float(value.value), "float")
+            return
 
         if self.table[name].type != value.type:
             raise Exception(
@@ -109,7 +126,7 @@ class SymbolTable:
 class Node(ABC):
     def __init__(
         self,
-        value: str | int | bool,
+        value: str | int | float | bool,
         children: List["Node"],
     ):
         self.value = value
@@ -151,31 +168,55 @@ class BinOp(Node):
             )
 
         if self.value in ("+", "-", "*", "/"):
-            if left.type != "int" or right.type != "int":
+            numeric_types = ("int", "float")
+
+            if left.type not in numeric_types or right.type not in numeric_types:
                 raise Exception("[Semantic] Incompatible types")
 
+            result_type = (
+                "float"
+                if left.type == "float" or right.type == "float"
+                else "int"
+            )
+
             if self.value == "+":
-                return Variable(left.value + right.value, "int")
+                return Variable(left.value + right.value, result_type)
             if self.value == "-":
-                return Variable(left.value - right.value, "int")
+                return Variable(left.value - right.value, result_type)
             if self.value == "*":
-                return Variable(left.value * right.value, "int")
+                return Variable(left.value * right.value, result_type)
 
             if right.value == 0:
                 raise Exception("[Semantic] Division by zero")
 
+            if result_type == "float":
+                return Variable(left.value / right.value, "float")
+
             return Variable(left.value // right.value, "int")
 
         if self.value == "==":
-            if left.type != right.type:
+            numeric_types = ("int", "float")
+
+            if (
+                left.type != right.type
+                and (
+                    left.type not in numeric_types
+                    or right.type not in numeric_types
+                )
+            ):
                 raise Exception("[Semantic] Incompatible types")
 
             return Variable(left.value == right.value, "bool")
 
         if self.value in (">", "<"):
-            if left.type != right.type or left.type not in (
-                "int",
-                "string",
+            numeric_types = ("int", "float")
+
+            if not (
+                (
+                    left.type in numeric_types
+                    and right.type in numeric_types
+                )
+                or (left.type == right.type == "string")
             ):
                 raise Exception("[Semantic] Incompatible types")
 
@@ -210,19 +251,45 @@ class UnOp(Node):
         child = self.children[0].evaluate(st)
 
         if self.value in ("+", "-"):
-            if child.type != "int":
+            if child.type not in ("int", "float"):
                 raise Exception("[Semantic] Incompatible types")
 
             if self.value == "+":
-                return Variable(+child.value, "int")
+                return Variable(+child.value, child.type)
 
-            return Variable(-child.value, "int")
+            return Variable(-child.value, child.type)
 
         if self.value == "!":
             if child.type != "bool":
                 raise Exception("[Semantic] Incompatible types")
 
             return Variable(not child.value, "bool")
+
+        if self.value == "int":
+            try:
+                if child.type == "string":
+                    return Variable(int(child.value), "int")
+
+                return Variable(int(round(child.value)), "int")
+            except (TypeError, ValueError):
+                raise Exception("[Semantic] Incompatible types") from None
+
+        if self.value == "float":
+            try:
+                return Variable(float(child.value), "float")
+            except (TypeError, ValueError):
+                raise Exception("[Semantic] Incompatible types") from None
+
+        if self.value == "string":
+            if child.type == "bool":
+                text = "true" if child.value else "false"
+            else:
+                text = str(child.value)
+
+            return Variable(text, "string")
+
+        if self.value == "bool":
+            return Variable(bool(child.value), "bool")
 
         raise Exception(
             f"[Semantic] Unknown unary operator: {self.value}"
@@ -232,12 +299,15 @@ class UnOp(Node):
 class IntVal(Node):
     def __init__(
         self,
-        value: int,
+        value: int | float,
         children: List["Node"],
     ):
         super().__init__(value, children)
 
     def evaluate(self, st: SymbolTable) -> Variable:
+        if isinstance(self.value, float):
+            return Variable(float(self.value), "float")
+
         return Variable(int(self.value), "int")
 
 
@@ -417,7 +487,7 @@ class Token:
     def __init__(
         self,
         token_type: TokenType,
-        value: int | str,
+        value: int | float | str,
     ):
         self.type = token_type
         self.value = value
@@ -617,17 +687,35 @@ class Lexer:
             self.next = Token("STR", string_value)
             return
 
-        # Reconhece um número inteiro
+        # Reconhece um número inteiro ou float
         if current.isdigit():
             number = ""
 
-            # Reconhece números com mais de um dígito
             while (
                 self.position < len(self.source)
                 and self.source[self.position].isdigit()
             ):
                 number += self.source[self.position]
                 self.position += 1
+
+            if (
+                self.position < len(self.source)
+                and self.source[self.position] == "."
+                and self.position + 1 < len(self.source)
+                and self.source[self.position + 1].isdigit()
+            ):
+                number += self.source[self.position]
+                self.position += 1
+
+                while (
+                    self.position < len(self.source)
+                    and self.source[self.position].isdigit()
+                ):
+                    number += self.source[self.position]
+                    self.position += 1
+
+                self.next = Token("FLOAT", float(number))
+                return
 
             self.next = Token("INT", int(number))
             return
@@ -656,6 +744,7 @@ class Lexer:
                 "true": "BOOL",
                 "false": "BOOL",
                 "int": "TYPE",
+                "float": "TYPE",
                 "bool": "TYPE",
                 "string": "TYPE",
             }
@@ -680,6 +769,30 @@ class Parser:
 
     @staticmethod
     def parse_factor() -> Node:
+        # Casting: int(expr), float(expr), string(expr) ou bool(expr)
+        if Parser.lexer.next.type == "TYPE":
+            cast_type = str(Parser.lexer.next.value)
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "OPEN_PAR":
+                raise Exception(
+                    "[Parser] Expected OPEN_PAR, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            Parser.lexer.select_next()
+            expression = Parser.parse_bool_expression()
+
+            if Parser.lexer.next.type != "CLOSE_PAR":
+                raise Exception(
+                    "[Parser] Expected CLOSE_PAR, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            Parser.lexer.select_next()
+
+            return UnOp(cast_type, [expression])
+
         # Operadores unários +, - e !
         if Parser.lexer.next.type in (
             "PLUS",
@@ -745,10 +858,10 @@ class Parser:
 
             return Read("Scanln", [])
 
-        # Número inteiro
-        if Parser.lexer.next.type == "INT":
+        # Número inteiro ou float
+        if Parser.lexer.next.type in ("INT", "FLOAT"):
             result = IntVal(
-                int(Parser.lexer.next.value),
+                Parser.lexer.next.value,
                 [],
             )
 
