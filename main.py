@@ -128,13 +128,6 @@ class BinOp(Node):
     ):
         super().__init__(value, children)
 
-    @staticmethod
-    def to_string(variable: Variable) -> str:
-        if variable.type == "bool":
-            return "true" if variable.value else "false"
-
-        return str(variable.value)
-
     def evaluate(self, st: SymbolTable) -> Variable:
         left = self.children[0].evaluate(st)
         right = self.children[1].evaluate(st)
@@ -142,8 +135,18 @@ class BinOp(Node):
         if self.value == "+" and (
             left.type == "string" or right.type == "string"
         ):
+            if left.type == "bool":
+                left_text = "true" if left.value else "false"
+            else:
+                left_text = str(left.value)
+
+            if right.type == "bool":
+                right_text = "true" if right.value else "false"
+            else:
+                right_text = str(right.value)
+
             return Variable(
-                self.to_string(left) + self.to_string(right),
+                left_text + right_text,
                 "string",
             )
 
@@ -913,9 +916,14 @@ class Parser:
         # Consome {
         Parser.lexer.select_next()
 
-        # A quebra de linha após { é opcional em blocos isolados
-        if Parser.lexer.next.type == "END":
-            Parser.lexer.select_next()
+        # A abertura do bloco precisa terminar com uma quebra de linha
+        if Parser.lexer.next.type != "END":
+            raise Exception(
+                "[Parser] Expected END, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
 
         statements: List[Node] = []
 
@@ -945,9 +953,13 @@ class Parser:
         if Parser.lexer.next.type == "OPEN_BRA":
             block = Parser.parse_block()
 
-            # A quebra de linha após } é opcional para permitir { { } }
-            if Parser.lexer.next.type == "END":
-                Parser.lexer.select_next()
+            if Parser.lexer.next.type != "END":
+                raise Exception(
+                    f"[Parser] Unexpected token "
+                    f"{Parser.lexer.next.type}"
+                )
+
+            Parser.lexer.select_next()
 
             return block
 
@@ -1090,26 +1102,6 @@ class Parser:
             # Monta a condição do laço
             condition = Parser.parse_bool_expression()
 
-            # Blocos de for precisam começar na linha seguinte
-            if Parser.lexer.next.type != "OPEN_BRA":
-                raise Exception(
-                    "[Parser] Expected OPEN_BRA, "
-                    f"got {Parser.lexer.next.type}"
-                )
-
-            saved_position = Parser.lexer.position
-            saved_next = Parser.lexer.next
-            Parser.lexer.select_next()
-
-            if Parser.lexer.next.type != "END":
-                raise Exception(
-                    f"[Parser] Unexpected token "
-                    f"{Parser.lexer.next.type}"
-                )
-
-            Parser.lexer.position = saved_position
-            Parser.lexer.next = saved_next
-
             # Monta o bloco executado pelo laço
             block = Parser.parse_block()
 
@@ -1136,26 +1128,6 @@ class Parser:
             # Monta a condição do if
             condition = Parser.parse_bool_expression()
 
-            # Blocos de if precisam começar na linha seguinte
-            if Parser.lexer.next.type != "OPEN_BRA":
-                raise Exception(
-                    "[Parser] Expected OPEN_BRA, "
-                    f"got {Parser.lexer.next.type}"
-                )
-
-            saved_position = Parser.lexer.position
-            saved_next = Parser.lexer.next
-            Parser.lexer.select_next()
-
-            if Parser.lexer.next.type != "END":
-                raise Exception(
-                    f"[Parser] Unexpected token "
-                    f"{Parser.lexer.next.type}"
-                )
-
-            Parser.lexer.position = saved_position
-            Parser.lexer.next = saved_next
-
             # Monta o bloco executado quando a condição é verdadeira
             true_block = Parser.parse_block()
 
@@ -1165,26 +1137,6 @@ class Parser:
             if Parser.lexer.next.type == "ELSE":
                 # Consome else
                 Parser.lexer.select_next()
-
-                # Blocos de else precisam começar na linha seguinte
-                if Parser.lexer.next.type != "OPEN_BRA":
-                    raise Exception(
-                        "[Parser] Expected OPEN_BRA, "
-                        f"got {Parser.lexer.next.type}"
-                    )
-
-                saved_position = Parser.lexer.position
-                saved_next = Parser.lexer.next
-                Parser.lexer.select_next()
-
-                if Parser.lexer.next.type != "END":
-                    raise Exception(
-                        f"[Parser] Unexpected token "
-                        f"{Parser.lexer.next.type}"
-                    )
-
-                Parser.lexer.position = saved_position
-                Parser.lexer.next = saved_next
 
                 # Monta o bloco executado quando a condição é falsa
                 false_block = Parser.parse_block()

@@ -47,9 +47,15 @@ if (acumulado > 0 && !(n < 0)) || n == 0 {
 
 // Testes de erro: descomente um por vez.
 // var tipo_errado int = "texto"
+// contador = "texto"
+// var x int
 // Println(1 - "texto")
+// Println("a" < "b")
 // Println(true && 1)
 // if "texto" {
+//     Println("não deveria executar")
+// }
+// for "texto" {
 //     Println("não deveria executar")
 // }
 // variavel_nao_declarada = 10
