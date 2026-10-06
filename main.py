@@ -1,10 +1,8 @@
-import re
 import sys
 from abc import ABC, abstractmethod
 from typing import Dict, List, Literal
 
 
-#coiso  que o robson ajudou e arrasou
 TokenType = Literal[
     "INT",
     "MINUS",
@@ -30,34 +28,88 @@ TokenType = Literal[
     "READ",
     "OPEN_BRA",
     "CLOSE_BRA",
+    "VAR",
+    "BOOL",
+    "STR",
+    "TYPE",
 ]
 
 
 class Variable:
-    def __init__(self, value: int):
+    def __init__(self, value: int | bool | str, variable_type: str):
         self.value = value
+        self.type = variable_type
 
 
 class SymbolTable:
     def __init__(self):
         self.table: Dict[str, Variable] = {}
 
-    def set_value(self, name: str, value: int):
-        self.table[name] = Variable(value)
+    def create_variable(
+        self,
+        name: str,
+        variable_type: str,
+        value: Variable | None = None,
+    ):
+        if name in self.table:
+            raise Exception(
+                f"[Semantic] Variable already declared: {name}"
+            )
 
-    def get_value(self, name: str) -> int:
+        default_values = {
+            "int": 0,
+            "bool": False,
+            "string": "",
+        }
+
+        if variable_type not in default_values:
+            raise Exception(
+                f"[Semantic] Invalid type: {variable_type}"
+            )
+
+        if value is None:
+            self.table[name] = Variable(
+                default_values[variable_type],
+                variable_type,
+            )
+            return
+
+        if value.type != variable_type:
+            raise Exception(
+                f"[Semantic] Incompatible types: "
+                f"expected {variable_type}, got {value.type}"
+            )
+
+        self.table[name] = Variable(value.value, value.type)
+
+    def set_value(self, name: str, value: Variable):
         if name not in self.table:
             raise Exception(
                 f"[Semantic] Undefined variable: {name}"
             )
 
-        return self.table[name].value
+        if self.table[name].type != value.type:
+            raise Exception(
+                f"[Semantic] Incompatible types: "
+                f"expected {self.table[name].type}, got {value.type}"
+            )
+
+        self.table[name] = Variable(value.value, value.type)
+
+    def get_value(self, name: str) -> Variable:
+        if name not in self.table:
+            raise Exception(
+                f"[Semantic] Undefined variable: {name}"
+            )
+
+        variable = self.table[name]
+        return Variable(variable.value, variable.type)
 
 
 class Node(ABC):
     def __init__(
         self,
-        value: str | int,
+        value: str | int | bool,
         children: List["Node"],
     ):
         self.value = value
@@ -76,35 +128,68 @@ class BinOp(Node):
     ):
         super().__init__(value, children)
 
-    def evaluate(self, st: SymbolTable) -> int:
-        left_value = self.children[0].evaluate(st)
-        right_value = self.children[1].evaluate(st)
+    @staticmethod
+    def to_string(variable: Variable) -> str:
+        if variable.type == "bool":
+            return "true" if variable.value else "false"
 
-        if self.value == "+":
-            return left_value + right_value
-        elif self.value == "-":
-            return left_value - right_value
-        elif self.value == "*":
-            return left_value * right_value
-        elif self.value == "/":
-            if right_value == 0:
+        return str(variable.value)
+
+    def evaluate(self, st: SymbolTable) -> Variable:
+        left = self.children[0].evaluate(st)
+        right = self.children[1].evaluate(st)
+
+        if self.value == "+" and (
+            left.type == "string" or right.type == "string"
+        ):
+            return Variable(
+                self.to_string(left) + self.to_string(right),
+                "string",
+            )
+
+        if self.value in ("+", "-", "*", "/"):
+            if left.type != "int" or right.type != "int":
+                raise Exception("[Semantic] Incompatible types")
+
+            if self.value == "+":
+                return Variable(left.value + right.value, "int")
+            if self.value == "-":
+                return Variable(left.value - right.value, "int")
+            if self.value == "*":
+                return Variable(left.value * right.value, "int")
+
+            if right.value == 0:
                 raise Exception("[Semantic] Division by zero")
 
-            return left_value // right_value
-        elif self.value == "==":
-            return int(left_value == right_value)
-        elif self.value == ">":
-            return int(left_value > right_value)
-        elif self.value == "<":
-            return int(left_value < right_value)
-        elif self.value == "&&":
-            return int(bool(left_value) and bool(right_value))
-        elif self.value == "||":
-            return int(bool(left_value) or bool(right_value))
-        else:
-            raise Exception(
-                f"[Semantic] Unknown operator: {self.value}"
-            )
+            return Variable(left.value // right.value, "int")
+
+        if self.value == "==":
+            if left.type != right.type:
+                raise Exception("[Semantic] Incompatible types")
+
+            return Variable(left.value == right.value, "bool")
+
+        if self.value in (">", "<"):
+            if left.type != "int" or right.type != "int":
+                raise Exception("[Semantic] Incompatible types")
+
+            if self.value == ">":
+                return Variable(left.value > right.value, "bool")
+
+            return Variable(left.value < right.value, "bool")
+
+        if self.value in ("&&", "||"):
+            if left.type != "bool" or right.type != "bool":
+                raise Exception("[Semantic] Incompatible types")
+
+            if self.value == "&&":
+                return Variable(left.value and right.value, "bool")
+
+            return Variable(left.value or right.value, "bool")
+
+        raise Exception(
+            f"[Semantic] Unknown operator: {self.value}"
+        )
 
 
 class UnOp(Node):
@@ -115,19 +200,27 @@ class UnOp(Node):
     ):
         super().__init__(value, children)
 
-    def evaluate(self, st: SymbolTable) -> int:
-        child_value = self.children[0].evaluate(st)
+    def evaluate(self, st: SymbolTable) -> Variable:
+        child = self.children[0].evaluate(st)
 
-        if self.value == "+":
-            return +child_value
-        elif self.value == "-":
-            return -child_value
-        elif self.value == "!":
-            return int(not bool(child_value))
-        else:
-            raise Exception(
-                f"[Semantic] Unknown unary operator: {self.value}"
-            )
+        if self.value in ("+", "-"):
+            if child.type != "int":
+                raise Exception("[Semantic] Incompatible types")
+
+            if self.value == "+":
+                return Variable(+child.value, "int")
+
+            return Variable(-child.value, "int")
+
+        if self.value == "!":
+            if child.type != "bool":
+                raise Exception("[Semantic] Incompatible types")
+
+            return Variable(not child.value, "bool")
+
+        raise Exception(
+            f"[Semantic] Unknown unary operator: {self.value}"
+        )
 
 
 class IntVal(Node):
@@ -138,8 +231,32 @@ class IntVal(Node):
     ):
         super().__init__(value, children)
 
-    def evaluate(self, st: SymbolTable) -> int:
-        return int(self.value)
+    def evaluate(self, st: SymbolTable) -> Variable:
+        return Variable(int(self.value), "int")
+
+
+class BoolVal(Node):
+    def __init__(
+        self,
+        value: bool,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable) -> Variable:
+        return Variable(bool(self.value), "bool")
+
+
+class StringVal(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable) -> Variable:
+        return Variable(str(self.value), "string")
 
 
 class Identifier(Node):
@@ -150,7 +267,7 @@ class Identifier(Node):
     ):
         super().__init__(value, children)
 
-    def evaluate(self, st: SymbolTable) -> int:
+    def evaluate(self, st: SymbolTable) -> Variable:
         return st.get_value(str(self.value))
 
 
@@ -163,7 +280,12 @@ class Print(Node):
         super().__init__(value, children)
 
     def evaluate(self, st: SymbolTable):
-        print(self.children[0].evaluate(st))
+        result = self.children[0].evaluate(st)
+
+        if result.type == "bool":
+            print("true" if result.value else "false")
+        else:
+            print(result.value)
 
 
 class Assignment(Node):
@@ -179,6 +301,28 @@ class Assignment(Node):
         variable_value = self.children[1].evaluate(st)
 
         st.set_value(variable_name, variable_value)
+
+
+class VarDec(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable):
+        variable_name = str(self.children[0].value)
+        initial_value = None
+
+        if len(self.children) == 2:
+            initial_value = self.children[1].evaluate(st)
+
+        st.create_variable(
+            variable_name,
+            str(self.value),
+            initial_value,
+        )
 
 
 class Block(Node):
@@ -217,7 +361,12 @@ class If(Node):
     def evaluate(self, st: SymbolTable):
         condition = self.children[0].evaluate(st)
 
-        if condition:
+        if condition.type != "bool":
+            raise Exception(
+                "[Semantic] If condition must be bool"
+            )
+
+        if condition.value:
             self.children[1].evaluate(st)
         elif len(self.children) == 3:
             self.children[2].evaluate(st)
@@ -232,7 +381,17 @@ class While(Node):
         super().__init__(value, children)
 
     def evaluate(self, st: SymbolTable):
-        while self.children[0].evaluate(st):
+        while True:
+            condition = self.children[0].evaluate(st)
+
+            if condition.type != "bool":
+                raise Exception(
+                    "[Semantic] For condition must be bool"
+                )
+
+            if not condition.value:
+                break
+
             self.children[1].evaluate(st)
 
 
@@ -244,8 +403,8 @@ class Read(Node):
     ):
         super().__init__(value, children)
 
-    def evaluate(self, st: SymbolTable) -> int:
-        return int(input())
+    def evaluate(self, st: SymbolTable) -> Variable:
+        return Variable(int(input()), "int")
 
 
 class Token:
@@ -261,7 +420,37 @@ class Token:
 class PrePro:
     @staticmethod
     def filter(code: str) -> str:
-        return re.sub(r"//[^\n]*", "", code)
+        result = ""
+        position = 0
+        inside_string = False
+
+        while position < len(code):
+            current = code[position]
+
+            if current == '"':
+                inside_string = not inside_string
+                result += current
+                position += 1
+                continue
+
+            if (
+                not inside_string
+                and current == "/"
+                and position + 1 < len(code)
+                and code[position + 1] == "/"
+            ):
+                while (
+                    position < len(code)
+                    and code[position] != "\n"
+                ):
+                    position += 1
+
+                continue
+
+            result += current
+            position += 1
+
+        return result
 
 
 class Lexer:
@@ -395,6 +584,33 @@ class Lexer:
             self.position += 1
             return
 
+        # Reconhece strings entre aspas duplas
+        if current == '"':
+            self.position += 1
+            string_value = ""
+
+            while (
+                self.position < len(self.source)
+                and self.source[self.position] != '"'
+            ):
+                if self.source[self.position] == "\n":
+                    raise Exception(
+                        "[Lexer] Unterminated string"
+                    )
+
+                string_value += self.source[self.position]
+                self.position += 1
+
+            if self.position >= len(self.source):
+                raise Exception(
+                    "[Lexer] Unterminated string"
+                )
+
+            # Consome a aspa de fechamento
+            self.position += 1
+            self.next = Token("STR", string_value)
+            return
+
         # Reconhece um número inteiro
         if current.isdigit():
             number = ""
@@ -430,6 +646,12 @@ class Lexer:
                 "for": "WHILE",
                 "else": "ELSE",
                 "Scanln": "READ",
+                "var": "VAR",
+                "true": "BOOL",
+                "false": "BOOL",
+                "int": "TYPE",
+                "bool": "TYPE",
+                "string": "TYPE",
             }
 
             if identifier in reserved_words:
@@ -525,6 +747,30 @@ class Parser:
             )
 
             # Consome o número
+            Parser.lexer.select_next()
+
+            return result
+
+        # Valor booleano
+        if Parser.lexer.next.type == "BOOL":
+            result = BoolVal(
+                Parser.lexer.next.value == "true",
+                [],
+            )
+
+            # Consome true ou false
+            Parser.lexer.select_next()
+
+            return result
+
+        # Valor string
+        if Parser.lexer.next.type == "STR":
+            result = StringVal(
+                str(Parser.lexer.next.value),
+                [],
+            )
+
+            # Consome a string
             Parser.lexer.select_next()
 
             return result
@@ -704,6 +950,56 @@ class Parser:
                 Parser.lexer.select_next()
 
             return block
+
+        # Declaração de variável
+        if Parser.lexer.next.type == "VAR":
+            # Consome var
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "IDEN":
+                raise Exception(
+                    "[Parser] Expected IDEN, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            identifier = Identifier(
+                str(Parser.lexer.next.value),
+                [],
+            )
+
+            # Consome o identificador
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "TYPE":
+                raise Exception(
+                    "[Parser] Expected TYPE, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            variable_type = str(Parser.lexer.next.value)
+
+            # Consome o tipo
+            Parser.lexer.select_next()
+
+            children: List[Node] = [identifier]
+
+            # A inicialização é opcional
+            if Parser.lexer.next.type == "ASSIGN":
+                Parser.lexer.select_next()
+                children.append(
+                    Parser.parse_bool_expression()
+                )
+
+            if Parser.lexer.next.type != "END":
+                raise Exception(
+                    f"[Parser] Unexpected token "
+                    f"{Parser.lexer.next.type}"
+                )
+
+            # Consome a quebra de linha
+            Parser.lexer.select_next()
+
+            return VarDec(variable_type, children)
 
         # Atribuição de variável
         if Parser.lexer.next.type == "IDEN":
