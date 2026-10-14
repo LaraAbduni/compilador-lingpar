@@ -1,54 +1,54 @@
-// Testes do Roteiro 7
+// // Testes do Roteiro 7
 
-// Variáveis dos três tipos
-var x int = 3
-var y int = 4
-var nome string = "Lara"
-var ativo bool = true
-var desligado bool
+// // Variáveis dos três tipos
+// var x int = 3
+// var y int = 4
+// var nome string = "Lara"
+// var ativo bool = true
+// var desligado bool
 
-// Valores default: 0, "" e false
-var contador int
-var texto string
+// // Valores default: 0, "" e false
+// var contador int
+// var texto string
 
-// Operações dos roteiros anteriores
-var soma int = x + y
-var dobro int = soma * 2
-Println(soma)
-Println(dobro + 1)
+// // Operações dos roteiros anteriores
+// var soma int = x + y
+// var dobro int = soma * 2
+// Println(soma)
+// Println(dobro + 1)
 
-// Strings, booleanos e concatenação
-Println(nome)
-Println(ativo)
-Println("nome=" + nome + ", soma=" + soma)
-Println("ativo=" + ativo + ", desligado=" + desligado)
+// // Strings, booleanos e concatenação
+// Println(nome)
+// Println(ativo)
+// Println("nome=" + nome + ", soma=" + soma)
+// Println("ativo=" + ativo + ", desligado=" + desligado)
 
-var palavra_a string = "abc"
-var palavra_b string = "def"
-Println(palavra_a < palavra_b)
-Println(palavra_a > palavra_b)
+// var palavra_a string = "abc"
+// var palavra_b string = "def"
+// Println(palavra_a < palavra_b)
+// Println(palavra_a > palavra_b)
 
-// Atribuições em variáveis previamente declaradas
-contador = contador + 1
-texto = "contador=" + contador
-Println(texto)
+// // Atribuições em variáveis previamente declaradas
+// contador = contador + 1
+// texto = "contador=" + contador
+// Println(texto)
 
-// Leitura continua retornando int
-var n int = Scanln()
-var i int = 0
-var acumulado int = 0
+// // Leitura continua retornando int
+// var n int = Scanln()
+// var i int = 0
+// var acumulado int = 0
 
-// Laço e operadores booleanos dos roteiros anteriores
-for (i < n && !(i == n)) || i < 0 {
-    acumulado = acumulado + i
-    i = i + 1
-}
+// // Laço e operadores booleanos dos roteiros anteriores
+// for (i < n && !(i == n)) || i < 0 {
+//     acumulado = acumulado + i
+//     i = i + 1
+// }
 
-if (acumulado > 0 && !(n < 0)) || n == 0 {
-    Println("acumulado=" + acumulado)
-} else {
-    Println("acumulado=0")
-}
+// if (acumulado > 0 && !(n < 0)) || n == 0 {
+//     Println("acumulado=" + acumulado)
+// } else {
+//     Println("acumulado=0")
+// }
 
 // Testes de erro: descomente um por vez.
 // var tipo_errado int = "texto"
@@ -63,3 +63,20 @@ if (acumulado > 0 && !(n < 0)) || n == 0 {
 //     Println("não deveria executar")
 // }
 // variavel_nao_declarada = 10
+
+
+// Teste do Roteiro 8 - geração de código Assembly
+
+var i int
+var n int
+var f int = 1
+
+n = Scanln()
+i = 2
+
+for i < n + 1 {
+    f = f * i
+    i = i + 1
+}
+
+Println(f)
