@@ -1483,6 +1483,46 @@ class Parser:
         )
 
     @staticmethod
+    def parse_var_declaration() -> Node:
+        # Exige e consome a palavra reservada var
+        if Parser.lexer.next.type != "VAR":
+            raise Exception(
+                "[Parser] Expected VAR, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "IDEN":
+            raise Exception(
+                "[Parser] Expected IDEN, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        identifier = Identifier(
+            str(Parser.lexer.next.value),
+            [],
+        )
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "TYPE":
+            raise Exception(
+                "[Parser] Expected TYPE, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        variable_type = str(Parser.lexer.next.value)
+        Parser.lexer.select_next()
+        children: List[Node] = [identifier]
+
+        # A inicialização é opcional
+        if Parser.lexer.next.type == "ASSIGN":
+            Parser.lexer.select_next()
+            children.append(Parser.parse_bool_expression())
+
+        return VarDec(variable_type, children)
+
+    @staticmethod
     def parse_block() -> Node:
         # Exige a abertura do bloco
         if Parser.lexer.next.type != "OPEN_BRA":
@@ -1542,42 +1582,7 @@ class Parser:
 
         # Declaração de variável
         if Parser.lexer.next.type == "VAR":
-            # Consome var
-            Parser.lexer.select_next()
-
-            if Parser.lexer.next.type != "IDEN":
-                raise Exception(
-                    "[Parser] Expected IDEN, "
-                    f"got {Parser.lexer.next.type}"
-                )
-
-            identifier = Identifier(
-                str(Parser.lexer.next.value),
-                [],
-            )
-
-            # Consome o identificador
-            Parser.lexer.select_next()
-
-            if Parser.lexer.next.type != "TYPE":
-                raise Exception(
-                    "[Parser] Expected TYPE, "
-                    f"got {Parser.lexer.next.type}"
-                )
-
-            variable_type = str(Parser.lexer.next.value)
-
-            # Consome o tipo
-            Parser.lexer.select_next()
-
-            children: List[Node] = [identifier]
-
-            # A inicialização é opcional
-            if Parser.lexer.next.type == "ASSIGN":
-                Parser.lexer.select_next()
-                children.append(
-                    Parser.parse_bool_expression()
-                )
+            declaration = Parser.parse_var_declaration()
 
             if Parser.lexer.next.type != "END":
                 raise Exception(
@@ -1588,7 +1593,7 @@ class Parser:
             # Consome a quebra de linha
             Parser.lexer.select_next()
 
-            return VarDec(variable_type, children)
+            return declaration
 
         # Atribuição de variável ou chamada de função
         if Parser.lexer.next.type == "IDEN":
