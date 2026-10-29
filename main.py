@@ -35,6 +35,9 @@ TokenType = Literal[
     "FUNC",
     "RETURN",
     "COMMA",
+    "TYPEDEF",
+    "STRUCT",
+    "DOT",
 ]
 
 
@@ -45,11 +48,13 @@ class Variable:
         variable_type: str,
         is_function: bool = False,
         shift: int = 0,
+        is_struct: bool = False,
     ):
         self.value = value
         self.type = variable_type
         self.is_function = is_function
         self.shift = shift
+        self.is_struct = is_struct
 
 
 class SymbolTable:
@@ -64,17 +69,11 @@ class SymbolTable:
         variable_type: str,
         value: Variable | None = None,
         is_function: bool = False,
+        is_struct: bool = False,
     ):
         if name in self.table:
             raise Exception(
                 f"[Semantic] Variable already declared: {name}"
-            )
-
-        valid_types = ("int", "bool", "string", "void")
-
-        if variable_type not in valid_types:
-            raise Exception(
-                f"[Semantic] Invalid type: {variable_type}"
             )
 
         if is_function:
@@ -87,6 +86,55 @@ class SymbolTable:
                 value.value,
                 variable_type,
                 True,
+            )
+            return
+
+        if is_struct:
+            if value is None:
+                raise Exception(
+                    f"[Semantic] Invalid struct: {name}"
+                )
+
+            self.table[name] = Variable(
+                value.value,
+                variable_type,
+                False,
+                0,
+                True,
+            )
+            return
+
+        primitive_types = ("int", "bool", "string")
+
+        if variable_type not in primitive_types:
+            try:
+                struct_variable = self.get_value(variable_type)
+            except Exception as error:
+                raise Exception(
+                    f"[Semantic] Invalid type: {variable_type}"
+                ) from error
+
+            if not struct_variable.is_struct:
+                raise Exception(
+                    f"[Semantic] Invalid type: {variable_type}"
+                )
+
+            if value is None:
+                instance_value = struct_variable.value.instantiate(self)
+            else:
+                if value.type != variable_type:
+                    raise Exception(
+                        f"[Semantic] Incompatible types: expected "
+                        f"{variable_type}, got {value.type}"
+                    )
+                instance_value = value.value
+
+            self.shift += 4
+            self.table[name] = Variable(
+                instance_value,
+                variable_type,
+                False,
+                self.shift,
             )
             return
 
@@ -133,9 +181,9 @@ class SymbolTable:
 
             raise Exception(f"[Semantic] Undefined variable: {name}")
 
-        if self.table[name].is_function:
+        if self.table[name].is_function or self.table[name].is_struct:
             raise Exception(
-                f"[Semantic] Cannot assign to function: {name}"
+                f"[Semantic] Cannot assign to declaration: {name}"
             )
 
         if self.table[name].type != value.type:
@@ -164,6 +212,7 @@ class SymbolTable:
             variable.type,
             variable.is_function,
             variable.shift,
+            variable.is_struct,
         )
 
 
@@ -507,9 +556,13 @@ class Assignment(Node):
         super().__init__(value, children)
 
     def evaluate(self, st: SymbolTable):
-        variable_name = str(self.children[0].value)
         variable_value = self.children[1].evaluate(st)
 
+        if isinstance(self.children[0], StructAccess):
+            self.children[0].assign(st, variable_value)
+            return
+
+        variable_name = str(self.children[0].value)
         st.set_value(variable_name, variable_value)
 
     def generate(self, st: SymbolTable):
@@ -862,6 +915,135 @@ class FuncCall(Node):
         pass
 
 
+class StructAccess(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable) -> Variable:
+        parts = str(self.value).split(".")
+        current = st.get_value(parts[0])
+
+        for attribute in parts[1:]:
+            if not isinstance(current.value, dict):
+                raise Exception(
+                    f"[Semantic] {attribute} accessed on non-struct"
+                )
+
+            if attribute not in current.value:
+                raise Exception(
+                    f"[Semantic] Undefined attribute: {attribute}"
+                )
+
+            current = current.value[attribute]
+
+        return Variable(
+            current.value,
+            current.type,
+            current.is_function,
+            current.shift,
+            current.is_struct,
+        )
+
+    def assign(self, st: SymbolTable, value: Variable):
+        parts = str(self.value).split(".")
+
+        if len(parts) < 2:
+            raise Exception("[Semantic] Invalid struct assignment")
+
+        current = st.get_value(parts[0])
+
+        for attribute in parts[1:-1]:
+            if not isinstance(current.value, dict):
+                raise Exception(
+                    f"[Semantic] {attribute} accessed on non-struct"
+                )
+
+            if attribute not in current.value:
+                raise Exception(
+                    f"[Semantic] Undefined attribute: {attribute}"
+                )
+
+            current = current.value[attribute]
+
+        if not isinstance(current.value, dict):
+            raise Exception(
+                "[Semantic] Attribute accessed on non-struct"
+            )
+
+        final_attribute = parts[-1]
+        if final_attribute not in current.value:
+            raise Exception(
+                f"[Semantic] Undefined attribute: {final_attribute}"
+            )
+
+        expected = current.value[final_attribute]
+        if expected.type != value.type:
+            raise Exception(
+                f"[Semantic] Incompatible types: expected "
+                f"{expected.type}, got {value.type}"
+            )
+
+        current.value[final_attribute] = Variable(
+            value.value,
+            value.type,
+            False,
+            expected.shift,
+        )
+
+    def generate(self, st: SymbolTable):
+        pass
+
+
+class StructDec(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable):
+        struct_name = str(self.children[0].value)
+
+        global_st = st
+        while global_st.parent is not None:
+            global_st = global_st.parent
+
+        struct_value = Variable(
+            self,
+            struct_name,
+            False,
+            0,
+            True,
+        )
+        global_st.create_variable(
+            struct_name,
+            struct_name,
+            struct_value,
+            False,
+            True,
+        )
+
+    def instantiate(self, st: SymbolTable) -> Dict[str, Variable]:
+        global_st = st
+        while global_st.parent is not None:
+            global_st = global_st.parent
+
+        fields_st = SymbolTable(global_st)
+
+        for field in self.children[1:]:
+            field.evaluate(fields_st)
+
+        return fields_st.table
+
+    def generate(self, st: SymbolTable):
+        pass
+
+
 class Token:
     def __init__(
         self,
@@ -1033,6 +1215,12 @@ class Lexer:
             self.position += 1
             return
 
+        # Acessa um atributo de struct
+        if current == ".":
+            self.next = Token("DOT", ".")
+            self.position += 1
+            return
+
         # Abre chaves
         if current == "{":
             self.next = Token("OPEN_BRA", "{")
@@ -1115,6 +1303,8 @@ class Lexer:
                 "string": "TYPE",
                 "func": "FUNC",
                 "return": "RETURN",
+                "type": "TYPEDEF",
+                "struct": "STRUCT",
             }
 
             if identifier in reserved_words:
@@ -1270,6 +1460,26 @@ class Parser:
                 Parser.lexer.select_next()
                 return FuncCall(identifier_name, arguments)
 
+            # Um ou mais pontos representam acesso a atributos
+            if Parser.lexer.next.type == "DOT":
+                access_path = [identifier_name]
+
+                while Parser.lexer.next.type == "DOT":
+                    Parser.lexer.select_next()
+
+                    if Parser.lexer.next.type != "IDEN":
+                        raise Exception(
+                            "[Parser] Expected IDEN, "
+                            f"got {Parser.lexer.next.type}"
+                        )
+
+                    access_path.append(
+                        str(Parser.lexer.next.value)
+                    )
+                    Parser.lexer.select_next()
+
+                return StructAccess(".".join(access_path), [])
+
             return Identifier(identifier_name, [])
 
         raise Exception(
@@ -1387,6 +1597,95 @@ class Parser:
         return result
 
     @staticmethod
+    def parse_struct_declaration() -> Node:
+        if Parser.lexer.next.type != "TYPEDEF":
+            raise Exception(
+                "[Parser] Expected TYPEDEF, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "IDEN":
+            raise Exception(
+                "[Parser] Expected IDEN, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        struct_identifier = Identifier(
+            str(Parser.lexer.next.value),
+            [],
+        )
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "STRUCT":
+            raise Exception(
+                "[Parser] Expected STRUCT, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "OPEN_BRA":
+            raise Exception(
+                "[Parser] Expected OPEN_BRA, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "END":
+            raise Exception(
+                "[Parser] Expected END, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+        fields: List[Node] = []
+
+        while Parser.lexer.next.type != "CLOSE_BRA":
+            if Parser.lexer.next.type == "END":
+                Parser.lexer.select_next()
+                continue
+
+            if Parser.lexer.next.type != "VAR":
+                raise Exception(
+                    "[Parser] Expected VAR or CLOSE_BRA, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            field = Parser.parse_var_declaration()
+
+            # O extra não permite inicialização no molde
+            if len(field.children) != 1:
+                raise Exception(
+                    "[Parser] Struct fields cannot be initialized"
+                )
+
+            if Parser.lexer.next.type != "END":
+                raise Exception(
+                    "[Parser] Expected END, "
+                    f"got {Parser.lexer.next.type}"
+                )
+
+            Parser.lexer.select_next()
+            fields.append(field)
+
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "END":
+            raise Exception(
+                "[Parser] Expected END, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+        return StructDec(
+            str(struct_identifier.value),
+            [struct_identifier, *fields],
+        )
+
+    @staticmethod
     def parse_func_declaration() -> Node:
         # Exige e consome a palavra reservada func
         if Parser.lexer.next.type != "FUNC":
@@ -1433,7 +1732,7 @@ class Parser:
                 )
                 Parser.lexer.select_next()
 
-                if Parser.lexer.next.type != "TYPE":
+                if Parser.lexer.next.type not in ("TYPE", "IDEN"):
                     raise Exception(
                         "[Parser] Expected TYPE, "
                         f"got {Parser.lexer.next.type}"
@@ -1463,7 +1762,7 @@ class Parser:
 
         # A ausência de tipo representa uma função void
         return_type = "void"
-        if Parser.lexer.next.type == "TYPE":
+        if Parser.lexer.next.type in ("TYPE", "IDEN"):
             return_type = str(Parser.lexer.next.value)
             Parser.lexer.select_next()
 
@@ -1505,18 +1804,25 @@ class Parser:
         )
         Parser.lexer.select_next()
 
-        if Parser.lexer.next.type != "TYPE":
+        if Parser.lexer.next.type not in ("TYPE", "IDEN"):
             raise Exception(
                 "[Parser] Expected TYPE, "
                 f"got {Parser.lexer.next.type}"
             )
 
+        custom_type = Parser.lexer.next.type == "IDEN"
         variable_type = str(Parser.lexer.next.value)
         Parser.lexer.select_next()
         children: List[Node] = [identifier]
 
         # A inicialização é opcional
         if Parser.lexer.next.type == "ASSIGN":
+            if custom_type:
+                raise Exception(
+                    "[Parser] Struct variables cannot be "
+                    "initialized in the declaration"
+                )
+
             Parser.lexer.select_next()
             children.append(Parser.parse_bool_expression())
 
@@ -1619,6 +1925,48 @@ class Parser:
                 return Assignment(
                     "=",
                     [identifier, expression],
+                )
+
+            # Atribuição em um atributo de struct
+            if Parser.lexer.next.type == "DOT":
+                access_path = [identifier_name]
+
+                while Parser.lexer.next.type == "DOT":
+                    Parser.lexer.select_next()
+
+                    if Parser.lexer.next.type != "IDEN":
+                        raise Exception(
+                            "[Parser] Expected IDEN, "
+                            f"got {Parser.lexer.next.type}"
+                        )
+
+                    access_path.append(
+                        str(Parser.lexer.next.value)
+                    )
+                    Parser.lexer.select_next()
+
+                if Parser.lexer.next.type != "ASSIGN":
+                    raise Exception(
+                        "[Parser] Expected ASSIGN, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.select_next()
+                expression = Parser.parse_bool_expression()
+
+                if Parser.lexer.next.type != "END":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.select_next()
+                return Assignment(
+                    "=",
+                    [
+                        StructAccess(".".join(access_path), []),
+                        expression,
+                    ],
                 )
 
             # Identificador seguido de ( representa chamada de função
@@ -1786,7 +2134,11 @@ class Parser:
         # No nível global são reconhecidas declarações de funções,
         # declarações de variáveis e linhas vazias
         while Parser.lexer.next.type != "EOF":
-            if Parser.lexer.next.type == "FUNC":
+            if Parser.lexer.next.type == "TYPEDEF":
+                statements.append(
+                    Parser.parse_struct_declaration()
+                )
+            elif Parser.lexer.next.type == "FUNC":
                 statements.append(
                     Parser.parse_func_declaration()
                 )
@@ -1796,7 +2148,7 @@ class Parser:
                 )
             else:
                 raise Exception(
-                    "[Parser] Only function and variable "
+                    "[Parser] Only struct, function and variable "
                     "declarations are allowed globally, got "
                     f"{Parser.lexer.next.type}"
                 )
