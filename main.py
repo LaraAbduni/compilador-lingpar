@@ -1534,10 +1534,14 @@ class Parser:
         # Consome {
         Parser.lexer.select_next()
 
-        # Consome a quebra de linha, quando existir
-        # Blocos compactos como {{ }} também são aceitos
-        if Parser.lexer.next.type == "END":
-            Parser.lexer.select_next()
+        # A abertura do bloco precisa terminar com uma quebra de linha
+        if Parser.lexer.next.type != "END":
+            raise Exception(
+                "[Parser] Expected END, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
 
         statements: List[Node] = []
 
@@ -1567,16 +1571,13 @@ class Parser:
         if Parser.lexer.next.type == "OPEN_BRA":
             block = Parser.parse_block()
 
-            if Parser.lexer.next.type not in ("END", "CLOSE_BRA"):
+            if Parser.lexer.next.type != "END":
                 raise Exception(
                     f"[Parser] Unexpected token "
                     f"{Parser.lexer.next.type}"
                 )
 
-            # Em {{ }}, o fechamento do bloco externo aparece
-            # imediatamente depois do fechamento do bloco interno
-            if Parser.lexer.next.type == "END":
-                Parser.lexer.select_next()
+            Parser.lexer.select_next()
 
             return block
 
@@ -1754,15 +1755,7 @@ class Parser:
 
             children = [condition, true_block]
 
-            # Guarda se o bloco verdadeiro já terminou a instrução
-            # Também permite escrever o else na linha seguinte
-            line_ended = False
-            if Parser.lexer.next.type == "END":
-                Parser.lexer.select_next()
-                line_ended = True
-
-            # O else é opcional e pode aparecer na mesma linha
-            # ou imediatamente depois da quebra de linha
+            # O else opcional deve aparecer na mesma linha do }
             if Parser.lexer.next.type == "ELSE":
                 # Consome else
                 Parser.lexer.select_next()
@@ -1771,21 +1764,14 @@ class Parser:
                 false_block = Parser.parse_block()
                 children.append(false_block)
 
-                # O bloco do else precisa terminar a instrução
-                if Parser.lexer.next.type != "END":
-                    raise Exception(
-                        f"[Parser] Unexpected token "
-                        f"{Parser.lexer.next.type}"
-                    )
-
-                Parser.lexer.select_next()
-
-            # Sem else, a quebra de linha já deveria ter sido consumida
-            elif not line_ended:
+            # Toda a instrução if precisa terminar com uma quebra de linha
+            if Parser.lexer.next.type != "END":
                 raise Exception(
                     f"[Parser] Unexpected token "
                     f"{Parser.lexer.next.type}"
                 )
+
+            Parser.lexer.select_next()
 
             return If("if", children)
 
