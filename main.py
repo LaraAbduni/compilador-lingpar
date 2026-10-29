@@ -32,24 +32,30 @@ TokenType = Literal[
     "BOOL",
     "STR",
     "TYPE",
+    "FUNC",
+    "RETURN",
+    "COMMA",
 ]
 
 
 class Variable:
     def __init__(
         self,
-        value: int | bool | str,
+        value: object,
         variable_type: str,
+        is_function: bool = False,
         shift: int = 0,
     ):
         self.value = value
         self.type = variable_type
+        self.is_function = is_function
         self.shift = shift
 
 
 class SymbolTable:
-    def __init__(self):
+    def __init__(self, parent: "SymbolTable | None" = None):
         self.table: Dict[str, Variable] = {}
+        self.parent = parent
         self.shift = 0
 
     def create_variable(
@@ -57,11 +63,32 @@ class SymbolTable:
         name: str,
         variable_type: str,
         value: Variable | None = None,
+        is_function: bool = False,
     ):
         if name in self.table:
             raise Exception(
                 f"[Semantic] Variable already declared: {name}"
             )
+
+        valid_types = ("int", "bool", "string", "void")
+
+        if variable_type not in valid_types:
+            raise Exception(
+                f"[Semantic] Invalid type: {variable_type}"
+            )
+
+        if is_function:
+            if value is None or not value.is_function:
+                raise Exception(
+                    f"[Semantic] Invalid function: {name}"
+                )
+
+            self.table[name] = Variable(
+                value.value,
+                variable_type,
+                True,
+            )
+            return
 
         default_values = {
             "int": 0,
@@ -69,9 +96,9 @@ class SymbolTable:
             "string": "",
         }
 
-        if variable_type not in default_values:
+        if variable_type == "void":
             raise Exception(
-                f"[Semantic] Invalid type: {variable_type}"
+                "[Semantic] Variable cannot have void type"
             )
 
         if value is not None and value.type != variable_type:
@@ -86,6 +113,7 @@ class SymbolTable:
             self.table[name] = Variable(
                 default_values[variable_type],
                 variable_type,
+                False,
                 self.shift,
             )
             return
@@ -93,13 +121,21 @@ class SymbolTable:
         self.table[name] = Variable(
             value.value,
             value.type,
+            False,
             self.shift,
         )
 
     def set_value(self, name: str, value: Variable):
         if name not in self.table:
+            if self.parent is not None:
+                self.parent.set_value(name, value)
+                return
+
+            raise Exception(f"[Semantic] Undefined variable: {name}")
+
+        if self.table[name].is_function:
             raise Exception(
-                f"[Semantic] Undefined variable: {name}"
+                f"[Semantic] Cannot assign to function: {name}"
             )
 
         if self.table[name].type != value.type:
@@ -111,19 +147,22 @@ class SymbolTable:
         self.table[name] = Variable(
             value.value,
             value.type,
+            False,
             self.table[name].shift,
         )
 
     def get_value(self, name: str) -> Variable:
         if name not in self.table:
-            raise Exception(
-                f"[Semantic] Undefined variable: {name}"
-            )
+            if self.parent is not None:
+                return self.parent.get_value(name)
+
+            raise Exception(f"[Semantic] Undefined variable: {name}")
 
         variable = self.table[name]
         return Variable(
             variable.value,
             variable.type,
+            variable.is_function,
             variable.shift,
         )
 
@@ -502,6 +541,7 @@ class VarDec(Node):
             variable_name,
             str(self.value),
             initial_value,
+            False,
         )
 
     def generate(self, st: SymbolTable):
@@ -509,7 +549,12 @@ class VarDec(Node):
         variable_type = str(self.value)
 
         # Registra a variável e reserva quatro bytes na pilha
-        st.create_variable(variable_name, variable_type)
+        st.create_variable(
+            variable_name,
+            variable_type,
+            None,
+            False,
+        )
         variable = st.get_value(variable_name)
         Code.append(
             f"    sub esp, 4 ; var {variable_name} "
@@ -541,7 +586,23 @@ class Block(Node):
 
     def evaluate(self, st: SymbolTable):
         for child in self.children:
-            child.evaluate(st)
+            child_st = st
+
+            # Todo bloco aninhado cria um novo escopo encadeado
+            if isinstance(child, Block):
+                child_st = SymbolTable(st)
+
+            result = child.evaluate(child_st)
+
+            # Propaga um return direto ou vindo de outro bloco,
+            # de uma condicional ou de um laço
+            if result is not None and isinstance(
+                child,
+                (Return, Block, If, While),
+            ):
+                return result
+
+        return None
 
     def generate(self, st: SymbolTable):
         for child in self.children:
@@ -580,9 +641,11 @@ class If(Node):
             )
 
         if condition.value:
-            self.children[1].evaluate(st)
+            return self.children[1].evaluate(SymbolTable(st))
         elif len(self.children) == 3:
-            self.children[2].evaluate(st)
+            return self.children[2].evaluate(SymbolTable(st))
+
+        return None
 
     def generate(self, st: SymbolTable):
         self.children[0].generate(st)
@@ -621,7 +684,12 @@ class While(Node):
             if not condition.value:
                 break
 
-            self.children[1].evaluate(st)
+            result = self.children[1].evaluate(SymbolTable(st))
+
+            if result is not None:
+                return result
+
+        return None
 
     def generate(self, st: SymbolTable):
         Code.append(f"loop_{self.id}:")
@@ -650,6 +718,148 @@ class Read(Node):
         Code.append("    call scanf")
         Code.append("    add esp, 8")
         Code.append("    mov eax, dword [scan_int]")
+
+
+class Return(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable) -> Variable:
+        return self.children[0].evaluate(st)
+
+    def generate(self, st: SymbolTable):
+        # A geração de funções pertence ao extra do Roteiro 8
+        pass
+
+
+class FuncDec(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable):
+        function_name = str(self.children[0].value)
+
+        # Funções são sempre declaradas na primeira tabela
+        global_st = st
+        while global_st.parent is not None:
+            global_st = global_st.parent
+
+        function_value = Variable(
+            self,
+            str(self.value),
+            True,
+        )
+        global_st.create_variable(
+            function_name,
+            str(self.value),
+            function_value,
+            True,
+        )
+
+    def generate(self, st: SymbolTable):
+        # A geração de funções pertence ao extra do Roteiro 8
+        pass
+
+
+class FuncCall(Node):
+    def __init__(
+        self,
+        value: str,
+        children: List["Node"],
+    ):
+        super().__init__(value, children)
+
+    def evaluate(self, st: SymbolTable) -> Variable:
+        function_name = str(self.value)
+
+        try:
+            function_variable = st.get_value(function_name)
+        except Exception as error:
+            raise Exception(
+                f"[Semantic] Undefined function: {function_name}"
+            ) from error
+
+        if not function_variable.is_function:
+            raise Exception(
+                f"[Semantic] Not a function: {function_name}"
+            )
+
+        function = function_variable.value
+        if not isinstance(function, FuncDec):
+            raise Exception(
+                f"[Semantic] Invalid function: {function_name}"
+            )
+
+        parameters = function.children[1:-1]
+
+        if len(parameters) != len(self.children):
+            raise Exception(
+                f"[Semantic] Function {function_name} expects "
+                f"{len(parameters)} arguments, got "
+                f"{len(self.children)}"
+            )
+
+        # A função enxerga variáveis globais, mas não as variáveis
+        # locais da função que realizou a chamada
+        global_st = st
+        while global_st.parent is not None:
+            global_st = global_st.parent
+
+        function_st = SymbolTable(global_st)
+
+        for parameter, argument in zip(
+            parameters,
+            self.children,
+        ):
+            argument_value = argument.evaluate(st)
+            parameter_name = str(parameter.children[0].value)
+            parameter_type = str(parameter.value)
+
+            function_st.create_variable(
+                parameter_name,
+                parameter_type,
+                argument_value,
+                False,
+            )
+
+        function_block = function.children[-1]
+        result = function_block.evaluate(function_st)
+        return_type = str(function.value)
+
+        if return_type == "void":
+            if result is not None:
+                raise Exception(
+                    f"[Semantic] Void function {function_name} "
+                    "cannot return a value"
+                )
+
+            return Variable(None, "void")
+
+        if result is None:
+            raise Exception(
+                f"[Semantic] Function {function_name} "
+                "must return a value"
+            )
+
+        if result.type != return_type:
+            raise Exception(
+                f"[Semantic] Function {function_name} must return "
+                f"{return_type}, got {result.type}"
+            )
+
+        return result
+
+    def generate(self, st: SymbolTable):
+        # A geração de funções pertence ao extra do Roteiro 8
+        pass
 
 
 class Token:
@@ -817,6 +1027,12 @@ class Lexer:
             self.position += 1
             return
 
+        # Separa argumentos e parâmetros de funções
+        if current == ",":
+            self.next = Token("COMMA", ",")
+            self.position += 1
+            return
+
         # Abre chaves
         if current == "{":
             self.next = Token("OPEN_BRA", "{")
@@ -897,6 +1113,8 @@ class Lexer:
                 "int": "TYPE",
                 "bool": "TYPE",
                 "string": "TYPE",
+                "func": "FUNC",
+                "return": "RETURN",
             }
 
             if identifier in reserved_words:
@@ -1022,15 +1240,37 @@ class Parser:
 
         # Identificador
         if Parser.lexer.next.type == "IDEN":
-            result = Identifier(
-                str(Parser.lexer.next.value),
-                [],
-            )
+            identifier_name = str(Parser.lexer.next.value)
 
             # Consome o identificador
             Parser.lexer.select_next()
 
-            return result
+            # Um identificador seguido de ( é uma chamada de função
+            if Parser.lexer.next.type == "OPEN_PAR":
+                Parser.lexer.select_next()
+                arguments: List[Node] = []
+
+                if Parser.lexer.next.type != "CLOSE_PAR":
+                    arguments.append(
+                        Parser.parse_bool_expression()
+                    )
+
+                    while Parser.lexer.next.type == "COMMA":
+                        Parser.lexer.select_next()
+                        arguments.append(
+                            Parser.parse_bool_expression()
+                        )
+
+                if Parser.lexer.next.type != "CLOSE_PAR":
+                    raise Exception(
+                        "[Parser] Expected CLOSE_PAR, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.select_next()
+                return FuncCall(identifier_name, arguments)
+
+            return Identifier(identifier_name, [])
 
         raise Exception(
             f"[Parser] Unexpected token {Parser.lexer.next.type}"
@@ -1147,6 +1387,102 @@ class Parser:
         return result
 
     @staticmethod
+    def parse_func_declaration() -> Node:
+        # Exige e consome a palavra reservada func
+        if Parser.lexer.next.type != "FUNC":
+            raise Exception(
+                "[Parser] Expected FUNC, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "IDEN":
+            raise Exception(
+                "[Parser] Expected IDEN, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        function_identifier = Identifier(
+            str(Parser.lexer.next.value),
+            [],
+        )
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "OPEN_PAR":
+            raise Exception(
+                "[Parser] Expected OPEN_PAR, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+        parameters: List[Node] = []
+
+        # Parâmetros seguem o formato: nome tipo, nome tipo
+        if Parser.lexer.next.type != "CLOSE_PAR":
+            while True:
+                if Parser.lexer.next.type != "IDEN":
+                    raise Exception(
+                        "[Parser] Expected IDEN, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                parameter_identifier = Identifier(
+                    str(Parser.lexer.next.value),
+                    [],
+                )
+                Parser.lexer.select_next()
+
+                if Parser.lexer.next.type != "TYPE":
+                    raise Exception(
+                        "[Parser] Expected TYPE, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                parameter_type = str(Parser.lexer.next.value)
+                Parser.lexer.select_next()
+                parameters.append(
+                    VarDec(
+                        parameter_type,
+                        [parameter_identifier],
+                    )
+                )
+
+                if Parser.lexer.next.type != "COMMA":
+                    break
+
+                Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "CLOSE_PAR":
+            raise Exception(
+                "[Parser] Expected CLOSE_PAR, "
+                f"got {Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+
+        # A ausência de tipo representa uma função void
+        return_type = "void"
+        if Parser.lexer.next.type == "TYPE":
+            return_type = str(Parser.lexer.next.value)
+            Parser.lexer.select_next()
+
+        function_block = Parser.parse_block()
+
+        if Parser.lexer.next.type != "END":
+            raise Exception(
+                f"[Parser] Unexpected token "
+                f"{Parser.lexer.next.type}"
+            )
+
+        Parser.lexer.select_next()
+
+        return FuncDec(
+            return_type,
+            [function_identifier, *parameters, function_block],
+        )
+
+    @staticmethod
     def parse_block() -> Node:
         # Exige a abertura do bloco
         if Parser.lexer.next.type != "OPEN_BRA":
@@ -1254,43 +1590,82 @@ class Parser:
 
             return VarDec(variable_type, children)
 
-        # Atribuição de variável
+        # Atribuição de variável ou chamada de função
         if Parser.lexer.next.type == "IDEN":
-            identifier = Identifier(
-                str(Parser.lexer.next.value),
-                [],
-            )
+            identifier_name = str(Parser.lexer.next.value)
+            identifier = Identifier(identifier_name, [])
 
             # Consome o identificador
             Parser.lexer.select_next()
 
-            # Exige o operador de atribuição
-            if Parser.lexer.next.type != "ASSIGN":
-                raise Exception(
-                    f"[Parser] Unexpected token "
-                    f"{Parser.lexer.next.type}"
+            # Identificador seguido de = representa atribuição
+            if Parser.lexer.next.type == "ASSIGN":
+                Parser.lexer.select_next()
+                expression = Parser.parse_bool_expression()
+
+                if Parser.lexer.next.type != "END":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.select_next()
+                return Assignment(
+                    "=",
+                    [identifier, expression],
                 )
 
-            # Consome =
-            Parser.lexer.select_next()
+            # Identificador seguido de ( representa chamada de função
+            if Parser.lexer.next.type == "OPEN_PAR":
+                Parser.lexer.select_next()
+                arguments: List[Node] = []
 
-            # Monta a AST da expressão atribuída
+                if Parser.lexer.next.type != "CLOSE_PAR":
+                    arguments.append(
+                        Parser.parse_bool_expression()
+                    )
+
+                    while Parser.lexer.next.type == "COMMA":
+                        Parser.lexer.select_next()
+                        arguments.append(
+                            Parser.parse_bool_expression()
+                        )
+
+                if Parser.lexer.next.type != "CLOSE_PAR":
+                    raise Exception(
+                        "[Parser] Expected CLOSE_PAR, "
+                        f"got {Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.select_next()
+
+                if Parser.lexer.next.type != "END":
+                    raise Exception(
+                        f"[Parser] Unexpected token "
+                        f"{Parser.lexer.next.type}"
+                    )
+
+                Parser.lexer.select_next()
+                return FuncCall(identifier_name, arguments)
+
+            raise Exception(
+                f"[Parser] Unexpected token "
+                f"{Parser.lexer.next.type}"
+            )
+
+        # Retorno de função
+        if Parser.lexer.next.type == "RETURN":
+            Parser.lexer.select_next()
             expression = Parser.parse_bool_expression()
 
-            # Toda instrução precisa terminar com uma quebra de linha
             if Parser.lexer.next.type != "END":
                 raise Exception(
                     f"[Parser] Unexpected token "
                     f"{Parser.lexer.next.type}"
                 )
 
-            # Consome a quebra de linha
             Parser.lexer.select_next()
-
-            return Assignment(
-                "=",
-                [identifier, expression],
-            )
+            return Return("return", [expression])
 
         # Impressão
         if Parser.lexer.next.type == "PRINT":
@@ -1417,11 +1792,26 @@ class Parser:
     def parse_program() -> Node:
         statements: List[Node] = []
 
-        # Monta um bloco com todas as instruções do arquivo
+        # No nível global são reconhecidas declarações de funções,
+        # declarações de variáveis e linhas vazias
         while Parser.lexer.next.type != "EOF":
-            statements.append(
-                Parser.parse_statement()
-            )
+            if Parser.lexer.next.type == "FUNC":
+                statements.append(
+                    Parser.parse_func_declaration()
+                )
+            elif Parser.lexer.next.type in ("VAR", "END"):
+                statements.append(
+                    Parser.parse_statement()
+                )
+            else:
+                raise Exception(
+                    "[Parser] Only function and variable "
+                    "declarations are allowed globally, got "
+                    f"{Parser.lexer.next.type}"
+                )
+
+        # A função main é o ponto de entrada obrigatório
+        statements.append(FuncCall("main", []))
 
         return Block("", statements)
 
@@ -1469,18 +1859,9 @@ def main():
     Node.id = 0
     raiz = Parser.run(entrada)
 
-    # Cria a tabela de símbolos e gera o código Assembly
+    # Cria a tabela de símbolos e executa a AST
     st = SymbolTable()
-    Code.instructions = []
-    raiz.generate(st)
-
-    # O arquivo de saída mantém o prefixo do arquivo de entrada
-    if "." in file_name:
-        output_file = file_name.rsplit(".", 1)[0] + ".asm"
-    else:
-        output_file = file_name + ".asm"
-
-    Code.dump(output_file)
+    raiz.evaluate(st)
 
 
 if __name__ == "__main__":

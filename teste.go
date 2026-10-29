@@ -1,82 +1,20 @@
-// // Testes do Roteiro 7
+var b int = 5 // Variável Global
 
-// // Variáveis dos três tipos
-// var x int = 3
-// var y int = 4
-// var nome string = "Lara"
-// var ativo bool = true
-// var desligado bool
-
-// // Valores default: 0, "" e false
-// var contador int
-// var texto string
-
-// // Operações dos roteiros anteriores
-// var soma int = x + y
-// var dobro int = soma * 2
-// Println(soma)
-// Println(dobro + 1)
-
-// // Strings, booleanos e concatenação
-// Println(nome)
-// Println(ativo)
-// Println("nome=" + nome + ", soma=" + soma)
-// Println("ativo=" + ativo + ", desligado=" + desligado)
-
-// var palavra_a string = "abc"
-// var palavra_b string = "def"
-// Println(palavra_a < palavra_b)
-// Println(palavra_a > palavra_b)
-
-// // Atribuições em variáveis previamente declaradas
-// contador = contador + 1
-// texto = "contador=" + contador
-// Println(texto)
-
-// // Leitura continua retornando int
-// var n int = Scanln()
-// var i int = 0
-// var acumulado int = 0
-
-// // Laço e operadores booleanos dos roteiros anteriores
-// for (i < n && !(i == n)) || i < 0 {
-//     acumulado = acumulado + i
-//     i = i + 1
-// }
-
-// if (acumulado > 0 && !(n < 0)) || n == 0 {
-//     Println("acumulado=" + acumulado)
-// } else {
-//     Println("acumulado=0")
-// }
-
-// Testes de erro: descomente um por vez.
-// var tipo_errado int = "texto"
-// contador = "texto"
-// var x int
-// Println(1 - "texto")
-// Println(true && 1)
-// if "texto" {
-//     Println("não deveria executar")
-// }
-// for "texto" {
-//     Println("não deveria executar")
-// }
-// variavel_nao_declarada = 10
-
-
-// Teste do Roteiro 8 - geração de código Assembly
-
-var i int
-var n int
-var f int = 1
-
-n = Scanln()
-i = 2
-
-for i < n + 1 {
-    f = f * i
-    i = i + 1
+func soma(x int, y int) int {
+  var a int // Variável Local
+  a = x + y
+  Println(a) // Imprime 7
+  return a
 }
 
-Println(f)
+func main() {
+  var a int
+  {
+    var b int
+    a = 3
+    b = soma(a, 4)
+    Println(b) // Imprime 7
+  }
+  Println(a) // Imprime 3
+  Println(b) // Imprime 5
+}

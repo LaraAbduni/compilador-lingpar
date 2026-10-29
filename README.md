@@ -2,20 +2,22 @@
 
 ![Compilation Status](https://compiler-tester.insper-comp.com.br/svg/LaraAbduni/compilador-lingpar)
 
-![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v3.0)
+![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v2.3)
 
 ## EBNF
 
 ```ebnf
-PROGRAM = { STATEMENT } ;
+PROGRAM = { (VARDECLARATION | FUNCDECLARATION), "\n" } ;
+FUNCDECLARATION = "func", IDENTIFIER, "(", (Ε | IDENTIFIER, TYPE, { ",", IDENTIFIER, TYPE }), ")", (Ε | TYPE), BLOCK ;
+VARDECLARATION = "var", IDENTIFIER, TYPE, (Ε | "=", BOOLEXPRESSION) ;
 BLOCK = "{", "\n", { STATEMENT }, "}" ;
-STATEMENT = ("var", IDENTIFIER, TYPE, (Ε | "=", BOOLEXPRESSION) | ("Println", "(", BOOLEXPRESSION, ")") | ("for", BOOLEXPRESSION, BLOCK) | ("if", BOOLEXPRESSION, BLOCK, (Ε | "else", BLOCK)) | BLOCK | IDENTIFIER, "=", BOOLEXPRESSION | Ε), "\n" ;
+STATEMENT = (VARDECLARATION | ("Println", "(", BOOLEXPRESSION, ")") | ("for", BOOLEXPRESSION, BLOCK) | ("if", BOOLEXPRESSION, BLOCK, (Ε | "else", BLOCK)) | BLOCK | IDENTIFIER, ("=", BOOLEXPRESSION | "(", (Ε | BOOLEXPRESSION, { ",", BOOLEXPRESSION }), ")") | "return", BOOLEXPRESSION | Ε), "\n" ;
 BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
 BOOLTERM = RELEXPRESSION, { "&&", RELEXPRESSION } ;
 RELEXPRESSION = EXPRESSION, { ("==" | "<" | ">"), EXPRESSION } ;
 EXPRESSION = TERM, { ("+" | "-"), TERM } ;
 TERM = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR = NUMBER | BOOLEAN | STRING | IDENTIFIER | ("+" | "-" | "!"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
+FACTOR = NUMBER | BOOLEAN | STRING | IDENTIFIER, (Ε | "(", (Ε | BOOLEXPRESSION, { ",", BOOLEXPRESSION }), ")") | ("+" | "-" | "!"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
 TYPE = "string" | "int" | "bool" ;
 BOOLEAN = "true" | "false" ;
 STRING = '"', { "..." }, '"' ;
