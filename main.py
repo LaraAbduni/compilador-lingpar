@@ -45,11 +45,15 @@ class Variable:
         variable_type: str,
         is_function: bool = False,
         shift: int = 0,
+        is_global: bool = False,
+        is_parameter: bool = False,
     ):
         self.value = value
         self.type = variable_type
         self.is_function = is_function
         self.shift = shift
+        self.is_global = is_global
+        self.is_parameter = is_parameter
 
 
 class SymbolTable:
@@ -57,6 +61,9 @@ class SymbolTable:
         self.table: Dict[str, Variable] = {}
         self.parent = parent
         self.shift = 0
+        self.frame_owner = (
+            self if parent is None else parent.frame_owner
+        )
 
     def create_variable(
         self,
@@ -107,14 +114,17 @@ class SymbolTable:
                 f"expected {variable_type}, got {value.type}"
             )
 
-        self.shift += 4
+        self.frame_owner.shift += 4
+        variable_shift = self.frame_owner.shift
+        is_global = self.parent is None
 
         if value is None:
             self.table[name] = Variable(
                 default_values[variable_type],
                 variable_type,
                 False,
-                self.shift,
+                variable_shift,
+                is_global,
             )
             return
 
@@ -122,7 +132,28 @@ class SymbolTable:
             value.value,
             value.type,
             False,
-            self.shift,
+            variable_shift,
+            is_global,
+        )
+
+    def create_parameter(
+        self,
+        name: str,
+        variable_type: str,
+        offset: int,
+    ):
+        if name in self.table:
+            raise Exception(
+                f"[Semantic] Variable already declared: {name}"
+            )
+
+        self.table[name] = Variable(
+            0,
+            variable_type,
+            False,
+            offset,
+            False,
+            True,
         )
 
     def set_value(self, name: str, value: Variable):
@@ -149,6 +180,8 @@ class SymbolTable:
             value.type,
             False,
             self.table[name].shift,
+            self.table[name].is_global,
+            self.table[name].is_parameter,
         )
 
     def get_value(self, name: str) -> Variable:
@@ -164,11 +197,15 @@ class SymbolTable:
             variable.type,
             variable.is_function,
             variable.shift,
+            variable.is_global,
+            variable.is_parameter,
         )
 
 
 class Code:
     instructions = []
+    functions = []
+    current_return_label = None
 
     @staticmethod
     def append(code: str) -> None:
@@ -176,19 +213,23 @@ class Code:
 
     @staticmethod
     def dump(filename: str) -> None:
-        header = """section .data
+        preamble = """section .data
     format_out: db "%d", 10, 0
     format_in: db "%d", 0
     scan_int: dd 0
+    global_base: dd 0
 
 section .text
     extern printf
     extern scanf
     global _start
+"""
 
+        entry = """
 _start:
     push ebp
     mov ebp, esp
+    mov dword [global_base], ebp
 
     ; aqui começa o codigo gerado:
 """
@@ -206,7 +247,13 @@ _start:
 """
 
         with open(filename, "w", encoding="utf-8") as file:
-            file.write(header)
+            file.write(preamble)
+
+            if Code.functions:
+                file.write("\n".join(Code.functions))
+                file.write("\n")
+
+            file.write(entry)
 
             if Code.instructions:
                 file.write("\n".join(Code.instructions))
@@ -469,9 +516,20 @@ class Identifier(Node):
 
     def generate(self, st: SymbolTable):
         variable = st.get_value(str(self.value))
-        Code.append(
-            f"    mov eax, dword [ebp-{variable.shift}]"
-        )
+
+        if variable.is_global:
+            Code.append("    mov ecx, dword [global_base]")
+            Code.append(
+                f"    mov eax, dword [ecx-{variable.shift}]"
+            )
+        elif variable.is_parameter:
+            Code.append(
+                f"    mov eax, dword [ebp+{variable.shift}]"
+            )
+        else:
+            Code.append(
+                f"    mov eax, dword [ebp-{variable.shift}]"
+            )
 
 
 class Print(Node):
@@ -517,9 +575,20 @@ class Assignment(Node):
         variable = st.get_value(variable_name)
 
         self.children[1].generate(st)
-        Code.append(
-            f"    mov dword [ebp-{variable.shift}], eax"
-        )
+
+        if variable.is_global:
+            Code.append("    mov ecx, dword [global_base]")
+            Code.append(
+                f"    mov dword [ecx-{variable.shift}], eax"
+            )
+        elif variable.is_parameter:
+            Code.append(
+                f"    mov dword [ebp+{variable.shift}], eax"
+            )
+        else:
+            Code.append(
+                f"    mov dword [ebp-{variable.shift}], eax"
+            )
 
 
 class VarDec(Node):
@@ -556,10 +625,13 @@ class VarDec(Node):
             False,
         )
         variable = st.get_value(variable_name)
-        Code.append(
-            f"    sub esp, 4 ; var {variable_name} "
-            f"{variable_type} [EBP-{variable.shift}]"
-        )
+        # Globais pertencem ao frame de _start. O espaço das locais
+        # é reservado de uma vez no prólogo da função.
+        if variable.is_global:
+            Code.append(
+                f"    sub esp, 4 ; var {variable_name} "
+                f"{variable_type} [EBP-{variable.shift}]"
+            )
 
         # O Roteiro 8 não gera código para valores string
         if variable_type == "string":
@@ -567,13 +639,25 @@ class VarDec(Node):
 
         if len(self.children) == 2:
             self.children[1].generate(st)
-            Code.append(
-                f"    mov dword [ebp-{variable.shift}], eax"
-            )
+            if variable.is_global:
+                Code.append("    mov ecx, dword [global_base]")
+                Code.append(
+                    f"    mov dword [ecx-{variable.shift}], eax"
+                )
+            else:
+                Code.append(
+                    f"    mov dword [ebp-{variable.shift}], eax"
+                )
         else:
-            Code.append(
-                f"    mov dword [ebp-{variable.shift}], 0"
-            )
+            if variable.is_global:
+                Code.append("    mov ecx, dword [global_base]")
+                Code.append(
+                    f"    mov dword [ecx-{variable.shift}], 0"
+                )
+            else:
+                Code.append(
+                    f"    mov dword [ebp-{variable.shift}], 0"
+                )
 
 
 class Block(Node):
@@ -605,8 +689,32 @@ class Block(Node):
         return None
 
     def generate(self, st: SymbolTable):
+        # Registra todas as assinaturas antes de gerar os corpos,
+        # permitindo recursão e chamadas a funções declaradas depois
+        if st.parent is None:
+            for child in self.children:
+                if isinstance(child, FuncDec):
+                    function_name = str(child.children[0].value)
+                    function_value = Variable(
+                        child,
+                        str(child.value),
+                        True,
+                    )
+                    st.create_variable(
+                        function_name,
+                        str(child.value),
+                        function_value,
+                        True,
+                    )
+
         for child in self.children:
-            child.generate(st)
+            child_st = st
+
+            if isinstance(child, Block):
+                child_st = SymbolTable(st)
+                child_st.frame_owner = st.frame_owner
+
+            child.generate(child_st)
 
 
 class NoOp(Node):
@@ -653,14 +761,20 @@ class If(Node):
 
         if len(self.children) == 3:
             Code.append(f"    je else_{self.id}")
-            self.children[1].generate(st)
+            true_st = SymbolTable(st)
+            true_st.frame_owner = st.frame_owner
+            self.children[1].generate(true_st)
             Code.append(f"    jmp exit_{self.id}")
             Code.append(f"else_{self.id}:")
-            self.children[2].generate(st)
+            false_st = SymbolTable(st)
+            false_st.frame_owner = st.frame_owner
+            self.children[2].generate(false_st)
             Code.append(f"exit_{self.id}:")
         else:
             Code.append(f"    je exit_{self.id}")
-            self.children[1].generate(st)
+            true_st = SymbolTable(st)
+            true_st.frame_owner = st.frame_owner
+            self.children[1].generate(true_st)
             Code.append(f"exit_{self.id}:")
 
 
@@ -696,7 +810,9 @@ class While(Node):
         self.children[0].generate(st)
         Code.append("    cmp eax, 0")
         Code.append(f"    je exit_{self.id}")
-        self.children[1].generate(st)
+        body_st = SymbolTable(st)
+        body_st.frame_owner = st.frame_owner
+        self.children[1].generate(body_st)
         Code.append(f"    jmp loop_{self.id}")
         Code.append(f"exit_{self.id}:")
 
@@ -732,8 +848,11 @@ class Return(Node):
         return self.children[0].evaluate(st)
 
     def generate(self, st: SymbolTable):
-        # A geração de funções pertence ao extra do Roteiro 8
-        pass
+        if Code.current_return_label is None:
+            raise Exception("[Semantic] Return outside function")
+
+        self.children[0].generate(st)
+        Code.append(f"    jmp {Code.current_return_label}")
 
 
 class FuncDec(Node):
@@ -765,8 +884,58 @@ class FuncDec(Node):
         )
 
     def generate(self, st: SymbolTable):
-        # A geração de funções pertence ao extra do Roteiro 8
-        pass
+        function_name = str(self.children[0].value)
+        parameters = self.children[1:-1]
+        function_block = self.children[-1]
+
+        global_st = st
+        while global_st.parent is not None:
+            global_st = global_st.parent
+
+        function_st = SymbolTable(global_st)
+        function_st.frame_owner = function_st
+        function_st.shift = 0
+
+        # [EBP+4] é o endereço de retorno; o primeiro argumento
+        # começa em [EBP+8]
+        for index, parameter in enumerate(parameters):
+            parameter_name = str(parameter.children[0].value)
+            parameter_type = str(parameter.value)
+            function_st.create_parameter(
+                parameter_name,
+                parameter_type,
+                8 + index * 4,
+            )
+
+        previous_instructions = Code.instructions
+        previous_return_label = Code.current_return_label
+        Code.instructions = []
+        Code.current_return_label = f"return_{self.id}"
+
+        Code.append(f"func_{function_name}:")
+        Code.append("    push ebp")
+        Code.append("    mov ebp, esp")
+        function_block.generate(function_st)
+
+        if function_st.shift > 0:
+            Code.instructions.insert(
+                3,
+                f"    sub esp, {function_st.shift} "
+                "; reserva variaveis locais",
+            )
+
+        if str(self.value) == "void":
+            Code.append("    mov eax, 0")
+
+        Code.append(f"{Code.current_return_label}:")
+        Code.append("    mov esp, ebp")
+        Code.append("    pop ebp")
+        Code.append("    ret")
+        Code.append("")
+
+        Code.functions.extend(Code.instructions)
+        Code.instructions = previous_instructions
+        Code.current_return_label = previous_return_label
 
 
 class FuncCall(Node):
@@ -858,8 +1027,40 @@ class FuncCall(Node):
         return result
 
     def generate(self, st: SymbolTable):
-        # A geração de funções pertence ao extra do Roteiro 8
-        pass
+        function_name = str(self.value)
+
+        try:
+            function_variable = st.get_value(function_name)
+        except Exception as error:
+            raise Exception(
+                f"[Semantic] Undefined function: {function_name}"
+            ) from error
+
+        if not function_variable.is_function:
+            raise Exception(
+                f"[Semantic] Not a function: {function_name}"
+            )
+
+        function = function_variable.value
+        parameters = function.children[1:-1]
+
+        if len(parameters) != len(self.children):
+            raise Exception(
+                f"[Semantic] Function {function_name} expects "
+                f"{len(parameters)} arguments, got "
+                f"{len(self.children)}"
+            )
+
+        # Convenção cdecl: argumentos empilhados da direita
+        # para a esquerda, para que o primeiro fique em [EBP+8]
+        for argument in reversed(self.children):
+            argument.generate(st)
+            Code.append("    push eax")
+
+        Code.append(f"    call func_{function_name}")
+
+        if self.children:
+            Code.append(f"    add esp, {len(self.children) * 4}")
 
 
 class Token:
@@ -1850,9 +2051,20 @@ def main():
     Node.id = 0
     raiz = Parser.run(entrada)
 
-    # Cria a tabela de símbolos e executa a AST
+    # Cria uma tabela nova exclusivamente para a geração de código
     st = SymbolTable()
-    raiz.evaluate(st)
+    Code.instructions = []
+    Code.functions = []
+    Code.current_return_label = None
+    raiz.generate(st)
+
+    # O arquivo de saída mantém o prefixo do arquivo de entrada
+    if "." in file_name:
+        output_file = file_name.rsplit(".", 1)[0] + ".asm"
+    else:
+        output_file = file_name + ".asm"
+
+    Code.dump(output_file)
 
 
 if __name__ == "__main__":
